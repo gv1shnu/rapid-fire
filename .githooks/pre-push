@@ -1,0 +1,8 @@
+#!/bin/sh
+# Block a push when the project does not fully validate.
+# Install once with:  npm run hooks:install  (or any `npm install` runs it).
+set -e
+
+echo "› pre-push: validating The Lost Schema before pushing…"
+npm run verify
+echo "✓ pre-push: all checks passed."
