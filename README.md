@@ -120,8 +120,15 @@ as a clearly labelled offline setup preview. Nothing secret is needed for tests.
 
 2. **Roster.** Import lowercase student/staff emails and their sections into
    `public.roster (email, section)`.
-3. **Instructors.** After an instructor's Google account exists in
-   `auth.users`, insert its UUID into `public.instructors`.
+3. **Instructors.** Add each host's email to `public.instructor_emails` up
+   front — no prior sign-in needed. They become instructors on their first
+   Google sign-in; everyone else on an allowed domain stays a player/student.
+
+   ```sql
+   insert into public.instructor_emails (email) values
+     ('instructor@rishihood.edu.in');
+   ```
+
 4. **Google OAuth.** Enable only the Google provider with `openid email profile`;
    keep email signup disabled. Store the client ID/secret in Supabase provider
    settings, never in the frontend. Add the deployed origin's `/instructor` path
@@ -163,7 +170,7 @@ Supabase Auth ──► before_user_created hook  (Google + allowed domain only)
   │
   ▼
 PostgreSQL (source of truth)
-  ├─ Tables: allowed_domains, roster, instructors, rounds, questions, options,
+  ├─ Tables: allowed_domains, roster, instructor_emails, rounds, questions, options,
   │          players, sessions, round_releases, round_runs, attempts
   ├─ RLS on every table; browser roles have NO direct table access
   └─ SECURITY DEFINER functions (the only granted surface):
