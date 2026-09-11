@@ -78,7 +78,7 @@ export function Instructor() {
     count >= 1 &&
     count <= Math.min(300, selectedPool?.available_questions ?? 0) &&
     Number.isInteger(allotted) &&
-    allotted >= 1 &&
+    allotted >= 10 &&
     allotted <= 120 &&
     duration < 10800 &&
     (isPreview || section !== '' || Boolean(sessionId));
@@ -504,7 +504,7 @@ export function Instructor() {
                     <input
                       id="question-seconds"
                       type="number"
-                      min="1"
+                      min="10"
                       max="120"
                       step="1"
                       value={seconds}
@@ -512,7 +512,7 @@ export function Instructor() {
                       onChange={(event) => setSeconds(event.target.value)}
                       aria-describedby="seconds-help"
                     />
-                    <p id="seconds-help">Between 1 and 120 seconds</p>
+                    <p id="seconds-help">Between 10 and 120 seconds</p>
                   </div>
                 </div>
                 <div className="duration-calculation" aria-live="polite">
