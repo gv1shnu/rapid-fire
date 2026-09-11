@@ -1,0 +1,5 @@
+node_modules
+dist
+supabase/.temp
+package-lock.json
+docs/PROMPT.md
