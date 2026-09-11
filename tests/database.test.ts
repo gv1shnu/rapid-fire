@@ -599,7 +599,8 @@ describe('sealed PostgreSQL game', () => {
       'select extract(epoch from closes_at-started_at)::int duration from public.round_releases where session_id=$1',
       [session],
     );
-    expect(cfg.rows[0].duration).toBe(800);
+    // count*seconds plus one question of grace so the last answer lands in time.
+    expect(cfg.rows[0].duration).toBe((40 + 1) * 20);
     await identity(host);
     await expect(
       rpc(
