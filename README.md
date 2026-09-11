@@ -36,10 +36,14 @@ Implemented so far:
   Google-domain sign-up hook, trusted roster + instructor authorization, all
   game and host RPCs, server-side timing and scoring, cumulative placement, and
   configurable per-round releases with analytics.
-- A public **waiting screen**, a **one-question practice preview**
-  (`/?preview=question`, local timer, sealed choice, no scoring), and the
-  **instructor control room** (`/instructor`) with pool counts, configurable
-  count/timer, review + approval, a shared countdown and early closure.
+- A **single Google sign-in** on the landing that routes by role from the
+  instructor allowlist: instructors get an entry to the control room, everyone
+  else becomes a signed-in student on a **waiting screen** (the student
+  join/play loop itself is still pending). Plus a **one-question practice
+  preview** (`/?preview=question`, local timer, concealed until start, no
+  scoring), and the **instructor control room** (`/instructor`) with pool
+  counts, configurable count/timer, review + approval, a shared countdown and
+  early closure.
 - An elaborate automated test suite (database + React components) and a
   pre-push validation hook.
 
