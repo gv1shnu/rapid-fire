@@ -1,0 +1,167 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+:root {
+  font-family: 'DM Sans', sans-serif;
+  color: #eeeadd;
+  background: #101a19;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 1300px;
+  min-height: 100svh;
+  margin: auto;
+  padding: 38px 6%;
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 48px;
+}
+header {
+  grid-column: 1/-1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.mark {
+  color: #e6bc70;
+  font-size: 32px;
+}
+.badge {
+  margin-left: auto;
+  border: 1px solid #43514a;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 10px;
+  color: #b7c0b8;
+}
+section {
+  align-self: center;
+}
+.eyebrow {
+  color: #dfb56a;
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+h1 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(42px, 5.5vw, 74px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -3px;
+  margin: 28px 0;
+}
+.intro {
+  color: #a7b4ab;
+  max-width: 350px;
+  line-height: 1.8;
+}
+.status {
+  display: flex;
+  gap: 14px;
+  border-top: 1px solid #35443b;
+  padding-top: 27px;
+  margin-top: 42px;
+}
+h2 {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0;
+}
+.status p {
+  font-size: 13px;
+  color: #a7b4ab;
+  max-width: 300px;
+  line-height: 1.7;
+  margin: 9px 0;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  background: #dbb774;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.note {
+  font-size: 11px;
+  color: #82958a;
+  line-height: 1.8;
+  margin-top: 24px;
+}
+aside {
+  align-self: center;
+  background: radial-gradient(ellipse at 50% 35%, #314336, #1a2823 70%);
+  border: 1px solid #42513c;
+  border-radius: 160px 160px 12px 12px;
+  text-align: center;
+  padding: 38px 20px 45px;
+  min-height: 450px;
+}
+aside > span {
+  font-family: 'Space Grotesk', sans-serif;
+  color: #ac956a;
+  font-size: 12px;
+}
+.vault {
+  font-size: 170px;
+  line-height: 1.5;
+  color: #deb86d;
+  text-shadow: 0 0 60px #c89c4455;
+}
+aside h2 {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 24px;
+}
+aside p {
+  font-size: 13px;
+  color: #a7b4ab;
+}
+.trail {
+  color: #b49c6c;
+  font-size: 22px;
+  margin: 30px 0 20px;
+}
+.caption {
+  font-size: 9px;
+  letter-spacing: 2px;
+}
+footer {
+  grid-column: 1/-1;
+  align-self: end;
+  display: flex;
+  justify-content: space-between;
+  color: #809087;
+  font-size: 11px;
+  border-top: 1px solid #35443b;
+  padding-top: 20px;
+}
+@media (max-width: 760px) {
+  main {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: 24px;
+  }
+  h1 {
+    letter-spacing: -2px;
+  }
+  aside {
+    min-height: 330px;
+    max-width: 450px;
+    width: 100%;
+    justify-self: center;
+  }
+  .vault {
+    font-size: 110px;
+  }
+  footer {
+    gap: 20px;
+    line-height: 1.6;
+  }
+}
