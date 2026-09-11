@@ -159,6 +159,26 @@ describe('sealed PostgreSQL game', () => {
     );
     expect(rows.filter((r) => r.served_at)).toHaveLength(1);
   });
+  it('gives every student in a release the same questions in a different order', async () => {
+    await identity(player);
+    await round('start_round');
+    const code = (
+      await admin('select code from public.sessions where id=$1', [session])
+    ).rows[0].code;
+    await identity(host); // host is also rostered in section A
+    await rpc('join_session', [code, 'Second player', 'seed']);
+    await round('start_round');
+    const { rows } = await admin(
+      'select player_id, array_agg(question_id order by seq) qids from public.attempts where session_id=$1 group by player_id',
+      [session],
+    );
+    expect(rows).toHaveLength(2);
+    const [p1, p2] = rows.map((r) => (r as { qids: unknown[] }).qids);
+    // Same content: identical sets of questions for both students.
+    expect([...p1].sort()).toEqual([...p2].sort());
+    // Different order: the served sequences are not identical.
+    expect(p1).not.toEqual(p2);
+  });
   it('keeps retries immutable and all served payloads free of keys', async () => {
     const first = await round('start_round');
     expect((await round('start_round')).served_at).toEqual(first.served_at);
@@ -290,6 +310,7 @@ describe('sealed PostgreSQL game', () => {
       'roster',
       'instructors',
       'allowed_domains',
+      'sections',
     ])
       await expect(db.query(`select * from public.${table}`)).rejects.toThrow(
         'permission denied',
