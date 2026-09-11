@@ -103,13 +103,20 @@ insert into public.roster (email, section) values
 -- …bulk-import the rest.
 ```
 
-Instructors are added **after** their Google account first signs in (so their
-row exists in `auth.users`):
+Instructors are an **email allowlist provisioned up front** — no prior sign-in
+needed. Each listed host gains instructor access on their first Google sign-in;
+everyone else on an allowed domain stays a player/student.
 
 ```sql
-insert into public.instructors (id)
-select id from auth.users where lower(email) = 'instructor@example.edu';
+insert into public.instructor_emails (email) values
+  ('instructor1@partner.example'),
+  ('instructor4@partner.example'),
+  ('instructor3@partner.example'),
+  ('instructor2@partner.example');
 ```
+
+(`public.instructors` remains as a view the RPCs check by user id; it resolves
+these emails to whoever has signed in.)
 
 ### 1.5 Configure Auth
 
@@ -237,7 +244,7 @@ Work through this before trusting the deployment:
       `/instructor`.
 - [ ] Sign-in with a **non-allowed** account (e.g. a personal `gmail.com`) is
       rejected by the Before User Created hook.
-- [ ] A signed-in **instructor** (row in `public.instructors`) can open a session
+- [ ] A signed-in **instructor** (email in `public.instructor_emails`) can open a session
       and configure/release a round; a signed-in **non-instructor** cannot
       (`host_only`).
 - [ ] After a release ends, `round_report` is readable only by the owning
@@ -285,5 +292,5 @@ Work through this before trusting the deployment:
   build, and both are public by design.
 - RLS is on for every table and browser roles are granted only the listed RPCs;
   do not add table policies or grant internal helpers to `authenticated`.
-- Access control lives in `allowed_domains`, `roster` and `instructors`, all
+- Access control lives in `allowed_domains`, `roster` and `instructor_emails`, all
   managed by trusted SQL — user-editable profile metadata is never an authority.

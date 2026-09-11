@@ -73,7 +73,7 @@ beforeAll(async () => {
   );
   await db.exec(`insert into public.allowed_domains values('college.example');
  insert into auth.users values ('${host}','host@college.example',now(),'{"provider":"google"}'),('${player}','student@college.example',now(),'{"provider":"google"}'),('${outsider}','outsider@college.example',now(),'{"provider":"google"}');
- insert into public.instructors values('${host}');
+ insert into public.instructor_emails values('host@college.example');
  insert into public.roster values('host@college.example','A'),('student@college.example','A'),('outsider@college.example','B');`);
 }, 30000);
 afterAll(async () => {
@@ -758,6 +758,34 @@ describe('sealed PostgreSQL game', () => {
       [session],
     );
     expect(answer.rows[0].option_id).toBeNull();
+  });
+  it('grants instructor access from the email allowlist, resolved on sign-in', async () => {
+    const future = () => new Date(Date.now() + 75 * 60000).toISOString();
+    // A signed-in, allowed-domain student whose email is not allowlisted is not a host.
+    await identity(player);
+    await expect(
+      rpc('open_session', ['A', future()], ['text', 'timestamptz']),
+    ).rejects.toThrow('host_only');
+    // Allowlisting the email up front (case-insensitively) makes them a host
+    // the moment they act — no per-user id step after signup.
+    await admin(
+      "insert into public.instructor_emails values('student@college.example')",
+    );
+    await identity(player);
+    const opened = await rpc(
+      'open_session',
+      ['A', future()],
+      ['text', 'timestamptz'],
+    );
+    expect(opened.code).toMatch(/^[A-Z]{6}$/);
+    // Removing the email revokes host access again.
+    await admin(
+      "delete from public.instructor_emails where email='student@college.example'",
+    );
+    await identity(player);
+    await expect(
+      rpc('open_session', ['A', future()], ['text', 'timestamptz']),
+    ).rejects.toThrow('host_only');
   });
   it('enforces four options with exactly one correct at commit', async () => {
     await admin('begin');
