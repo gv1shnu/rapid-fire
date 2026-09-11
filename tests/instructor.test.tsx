@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 function setCount(value: string) {
-  fireEvent.change(screen.getByLabelText(/questions to release/i), {
+  fireEvent.change(screen.getByLabelText(/questions per round/i), {
     target: { value },
   });
 }
@@ -40,7 +40,7 @@ describe('Instructor setup preview', () => {
     expect(
       screen.getByRole('heading', { name: /configure rapid fire/i }),
     ).toBeVisible();
-    expect(screen.getByLabelText(/questions to release/i)).toHaveValue(30);
+    expect(screen.getByLabelText(/questions per round/i)).toHaveValue(30);
     expect(screen.getByLabelText(/seconds per question/i)).toHaveValue(12);
     // Round 1 pool from previewPools has 45 available questions.
     expect(screen.getByText('45')).toBeInTheDocument();
