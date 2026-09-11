@@ -114,7 +114,8 @@ as a clearly labelled offline setup preview. Nothing secret is needed for tests.
    ```sql
    insert into public.allowed_domains (domain) values
      ('rishihood.edu.in'),
-     ('nst.rishihood.edu.in');
+     ('nst.rishihood.edu.in'),
+     ('newtonschool.co');
    ```
 
 2. **Roster.** Import lowercase student/staff emails and their sections into
@@ -146,9 +147,11 @@ three as static assets served from the site root:
 | Terms of Service | `/terms.html`     | [public/terms.html](public/terms.html)         |
 | App logo (120px) | upload in console | [public/brand-logo.png](public/brand-logo.png) |
 
-Set the app's **Authorized domain** to `rishihood.edu.in`. Both legal pages
-already name `rishihood.edu.in` and `nst.rishihood.edu.in` as the only accepted
-sign-in domains; edit the contact line in each page before publishing.
+Set the app's **Authorized domains** to `rishihood.edu.in` and
+`newtonschool.co` (these are the registrable domains; `nst.rishihood.edu.in` is
+covered by `rishihood.edu.in`). Both legal pages already name
+`rishihood.edu.in`, `nst.rishihood.edu.in` and `newtonschool.co` as the only
+accepted sign-in domains; edit the contact line in each page before publishing.
 
 ## Architecture
 
