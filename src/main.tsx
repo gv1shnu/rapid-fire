@@ -1,7 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import { QuestionPreview } from './QuestionPreview';
 export function App() {
+  if (
+    new URLSearchParams(window.location.search).get('preview') === 'question'
+  ) {
+    return <QuestionPreview />;
+  }
   return (
     <main>
       <header>
@@ -30,6 +36,9 @@ export function App() {
             </p>
           </div>
         </div>
+        <a className="start-timer preview-link" href="/?preview=question">
+          Try the first question →
+        </a>
         <p className="note">
           30 questions per round · 12 seconds per question
           <br />
