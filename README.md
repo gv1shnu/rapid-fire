@@ -4,7 +4,7 @@ A sealed SQL treasure hunt for a university DBMS lab: nine rounds, 30 questions 
 
 ## Status: M1 — database foundation
 
-Implemented: strict TypeScript + Vite + React scaffold, Phaser 4.2 dependency, Supabase migrations, RLS, domain hook, trusted roster and instructor authorization, all specified game/host RPCs, server timing, scoring, cumulative placement, two development question pools, and PostgreSQL integration tests. The browser currently shows a static waiting screen, not a connected game.
+Implemented: strict TypeScript + Vite + React scaffold, Phaser 4.2 dependency, Supabase migrations, RLS, domain hook, trusted roster and instructor authorization, all specified game/host RPCs, server timing, scoring, cumulative placement, two development question pools, and PostgreSQL integration tests. The browser shows a waiting screen and a one-question practice preview at `/?preview=question`. The preview has a local 12-second timer, sealed choice selection and a retry button; it does not connect to a live game or score answers.
 
 Following the spec's milestone checkpoints, M2–M5 are intentionally pending. Google OAuth and session UI come in M2; Phaser, card renderers, debrief UI, realtime subscriptions/polling and question clearing in M3; reviewed imports and analytics in M4; deployment, backups and capacity testing in M5.
 
@@ -52,6 +52,10 @@ Configure the following using a trusted SQL connection, never browser writes:
 5. Enable `public.before_user_created` as the **Before User Created** hook in hosted Supabase. Local hook configuration is included in `supabase/config.toml`.
 
 The hook requires an exact allowed domain and Google provider metadata. Every RPC rechecks the verified user's provider and domain against `auth.users`. Section checks use the administrator-managed roster; user-editable profile metadata is never an authority.
+
+## Student and round analytics
+
+Submitted rounds now log right/wrong/timeout counts, nonnegative scores, average response time, accuracy, and selections made in under six seconds. The instructor-only `round_report` RPC returns student, class and per-question summaries after the sitting closes. See [metric definitions and report fields](docs/ROUND_METRICS.md). The report UI and CSV export are still pending.
 
 ## Database API
 
