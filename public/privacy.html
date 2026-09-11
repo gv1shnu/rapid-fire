@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#101a19" />
+    <meta name="robots" content="index,follow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" sizes="any" href="/favicon.ico" />
+    <title>Privacy Policy · The Lost Schema</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101a19;
+        --panel: #16221f;
+        --ink: #eeeadd;
+        --muted: #a9b3ac;
+        --gold: #e6bc70;
+        --line: #2a3a37;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          'DM Sans',
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
+        line-height: 1.65;
+      }
+      .wrap {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 56px 24px 96px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        font-size: 13px;
+        text-decoration: none;
+        color: var(--ink);
+      }
+      .brand img {
+        width: 34px;
+        height: 34px;
+      }
+      h1 {
+        font-size: clamp(30px, 5vw, 40px);
+        margin: 32px 0 6px;
+        letter-spacing: -0.5px;
+      }
+      .updated {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0 0 32px;
+      }
+      h2 {
+        color: var(--gold);
+        font-size: 20px;
+        margin: 40px 0 10px;
+      }
+      a {
+        color: var(--gold);
+      }
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin: 6px 0;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 20px 24px;
+        margin: 24px 0;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 56px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 14px;
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      code {
+        background: #0c1413;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <a class="brand" href="/"
+        ><img src="/favicon.svg" alt="" /><span>THE LOST SCHEMA</span></a
+      >
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: 11 September 2026</p>
+
+      <p>
+        <strong>The Lost Schema</strong> is a non-commercial educational web
+        application used to run rapid-fire SQL practice sessions inside a
+        university Database Management Systems (DBMS) lab. This policy explains
+        what information the application handles when you sign in and play, why,
+        and how it is protected. Using the application means you understand this
+        policy.
+      </p>
+
+      <div class="card">
+        <strong>Who can use it.</strong> Access is limited to members of the
+        college whose Google Workspace accounts belong to the
+        <code>example.edu</code> or <code>students.example.edu</code>
+        domains. Accounts from any other domain, and non-Google logins, are
+        rejected at sign-in.
+      </div>
+
+      <h2>Information we collect</h2>
+      <ul>
+        <li>
+          <strong>Google account identity.</strong> When you sign in with Google
+          we receive, through the requested
+          <code>openid email profile</code> scopes, your email address, your
+          basic profile name, and a Google account identifier. We do
+          <em>not</em> request access to your Gmail, Drive, contacts, or any
+          other Google service.
+        </li>
+        <li>
+          <strong>Class roster details.</strong> Your instructor provisions a
+          roster of participating email addresses and their assigned lab
+          section. Your email is matched against that roster to place you in the
+          correct section.
+        </li>
+        <li>
+          <strong>Gameplay data you create.</strong> A display nickname and
+          avatar seed you choose, the answer you select for each question, and
+          server-measured timing, per-question and per-round scores, streaks and
+          accuracy metrics for each round you play.
+        </li>
+      </ul>
+
+      <h2>How the information is used</h2>
+      <ul>
+        <li>
+          To authenticate you and confirm you belong to an allowed domain.
+        </li>
+        <li>To place you in your instructor-assigned lab section.</li>
+        <li>
+          To run the game fairly — one attempt per student, a shared countdown,
+          and scoring revealed only at the debrief.
+        </li>
+        <li>
+          To give your instructor class-level and per-student performance
+          reports <em>after</em> a round closes, so the lab can be reviewed and
+          graded.
+        </li>
+      </ul>
+      <p class="muted">
+        Your answers, scores and metrics are never sold, used for advertising,
+        or shared with third parties for their own purposes.
+      </p>
+
+      <h2>Who can see your data</h2>
+      <ul>
+        <li>
+          <strong>You</strong> see your own debrief after each round finishes.
+        </li>
+        <li>
+          <strong>The instructor who runs your session</strong> can see the
+          scores and metrics for that session's students. The database enforces
+          that only the assigned, allowlisted instructor of a session can read
+          its reports; other students, other instructors, and anonymous callers
+          cannot.
+        </li>
+        <li>
+          During a live round, scores and correct answers stay sealed from
+          everyone until the debrief.
+        </li>
+      </ul>
+
+      <h2>Where it is stored</h2>
+      <p>
+        Data is stored in the application's Supabase (PostgreSQL) project.
+        Row-level security is enabled on every table and the browser has no
+        direct read or write access; all access goes through a small set of
+        audited server functions. Sign-in is handled by Supabase Auth using
+        Google as the sole identity provider.
+      </p>
+
+      <h2>Retention and deletion</h2>
+      <p>
+        Session and score records are kept only as long as needed for the course
+        — typically the current term — and may be removed after grades are
+        finalised. To ask what is held about you, or to request correction or
+        deletion, contact the DBMS teaching team that runs your lab (see below).
+        Removing your account from the roster prevents further sign-in.
+      </p>
+
+      <h2>Children and eligibility</h2>
+      <p>
+        The application is intended for enrolled university students and staff.
+        It is not directed at children under 13.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        We may update this policy as the application evolves. Material changes
+        will be reflected by the “Last updated” date above.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Questions about this policy or your data can be directed to the DBMS lab
+        teaching team at your college.
+        <span class="muted"
+          >(Maintainers: replace this line with the course support email shown
+          on your Google consent screen before publishing.)</span
+        >
+      </p>
+
+      <footer>
+        <a href="/">Home</a>
+        <a href="/terms.html">Terms of Service</a>
+      </footer>
+    </main>
+  </body>
+</html>
