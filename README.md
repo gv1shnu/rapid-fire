@@ -113,7 +113,8 @@ as a clearly labelled offline setup preview. Nothing secret is needed for tests.
    ```sql
    insert into public.allowed_domains (domain) values
      ('example.edu'),
-     ('students.example.edu');
+     ('students.example.edu'),
+     ('partner.example');
    ```
 
 2. **Roster.** Import lowercase student/staff emails and their sections into
@@ -145,9 +146,11 @@ three as static assets served from the site root:
 | Terms of Service | `/terms.html`     | [public/terms.html](public/terms.html)         |
 | App logo (120px) | upload in console | [public/brand-logo.png](public/brand-logo.png) |
 
-Set the app's **Authorized domain** to `example.edu`. Both legal pages
-already name `example.edu` and `students.example.edu` as the only accepted
-sign-in domains; edit the contact line in each page before publishing.
+Set the app's **Authorized domains** to `example.edu` and
+`partner.example` (these are the registrable domains; `students.example.edu` is
+covered by `example.edu`). Both legal pages already name
+`example.edu`, `students.example.edu` and `partner.example` as the only
+accepted sign-in domains; edit the contact line in each page before publishing.
 
 ## Architecture
 
