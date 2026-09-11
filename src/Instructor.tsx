@@ -368,6 +368,20 @@ export function Instructor() {
                     <dd>{durationLabel(release!.duration_seconds)}</dd>
                   </div>
                 </dl>
+                {!isPreview && !ended && connected?.session?.code && (
+                  <div className="join-share">
+                    <span className="field-label">
+                      Share this link with students
+                    </span>
+                    <code className="join-link">
+                      {window.location.origin}/?j={connected.session.code}
+                    </code>
+                    <p className="clock-caption">
+                      They sign in and join this round. Code:{' '}
+                      {connected.session.code}
+                    </p>
+                  </div>
+                )}
                 {!ended && !confirmEnd && (
                   <button
                     className="end-button"
