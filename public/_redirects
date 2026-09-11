@@ -1,0 +1,5 @@
+# Cloudflare Pages SPA fallback.
+# Real files (/, /privacy.html, /terms.html, /favicon.svg, /assets/*) are served
+# first; only unknown paths like /instructor fall through to the app shell so
+# client-side routing and the OAuth /instructor redirect survive a full load.
+/*    /index.html    200
