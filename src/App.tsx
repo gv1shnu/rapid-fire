@@ -10,14 +10,13 @@ export function App() {
   }
   return (
     <main>
+      {/* No instructor link here: students and players never see the
+          instructor entry point. Hosts reach /instructor by direct URL. */}
       <header>
         <span className="mark" aria-hidden="true">
           ⌘
         </span>
         <span>THE LOST SCHEMA</span>
-        <a className="badge brand" href="/instructor">
-          INSTRUCTOR →
-        </a>
       </header>
       <section>
         <p className="eyebrow">NINE ROUNDS. ONE EXPEDITION.</p>

@@ -11,5 +11,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     css: false,
+    // Keep the suite deterministic: the offline-preview tests must not pick up
+    // a developer's .env.local Supabase connection.
+    env: { VITE_SUPABASE_URL: '', VITE_SUPABASE_PUBLISHABLE_KEY: '' },
   },
 });
