@@ -32,12 +32,16 @@ function startTimer() {
 }
 
 describe('QuestionPreview', () => {
-  it('starts sealed: options disabled, no scoring copy, twelve seconds shown', () => {
+  it('keeps the question and options hidden until the timer starts', () => {
     render(<QuestionPreview />);
     expect(
       screen.getByText(/ready\? you have 12 seconds/i),
     ).toBeInTheDocument();
     expect(screen.getByRole('timer')).toHaveTextContent('12');
+    // The stem and all four options are concealed in the ready phase.
+    expect(
+      screen.queryByText(/which key identifies every row/i),
+    ).not.toBeInTheDocument();
     for (const label of [
       'Foreign key',
       'Primary key',
@@ -45,8 +49,27 @@ describe('QuestionPreview', () => {
       'Nullable column',
     ]) {
       expect(
+        screen.queryByRole('button', { name: new RegExp(label, 'i') }),
+      ).not.toBeInTheDocument();
+    }
+    expect(
+      screen.getByText(/start the timer to reveal the question/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /start timer/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('reveals the question and enables the options only after starting', () => {
+    render(<QuestionPreview />);
+    act(startTimer);
+    expect(
+      screen.getByRole('heading', { name: /which key identifies every row/i }),
+    ).toBeInTheDocument();
+    for (const label of ['Foreign key', 'Primary key']) {
+      expect(
         screen.getByRole('button', { name: new RegExp(label, 'i') }),
-      ).toBeDisabled();
+      ).toBeEnabled();
     }
     expect(screen.getByText(/^A$/)).toBeInTheDocument();
     expect(screen.getByText(/^D$/)).toBeInTheDocument();

@@ -269,6 +269,26 @@ footer {
   display: grid;
   gap: 12px;
 }
+.answers-concealed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 300px;
+  padding: 32px 18px;
+  border: 1px dashed #465448;
+  border-radius: 10px;
+  background: #131d19;
+  color: #8f9c92;
+  text-align: center;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
+.answers-concealed .conceal-mark {
+  font-size: 40px;
+  color: #6f7d72;
+}
 .answer-option {
   display: flex;
   align-items: center;

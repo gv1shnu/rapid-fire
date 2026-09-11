@@ -88,30 +88,43 @@ export function QuestionPreview() {
               </span>
             </div>
           </div>
-          <h1 id="question-heading">Which key identifies every row?</h1>
+          <h1 id="question-heading">
+            {phase === 'ready'
+              ? 'Ready when you are.'
+              : 'Which key identifies every row?'}
+          </h1>
           <p className="question-instruction">
-            Choose one answer. Keep exploring.
+            {phase === 'ready'
+              ? 'The question and its four answers stay hidden until you start the timer.'
+              : 'Choose one answer. Keep exploring.'}
           </p>
-          <div className="answer-options" aria-label="Answer choices">
-            {options.map((option, index) => (
-              <button
-                key={option}
-                className={`answer-option${selected === index ? ' selected' : ''}`}
-                disabled={phase !== 'running'}
-                aria-pressed={selected === index}
-                data-option-index={index}
-                onClick={handleAnswer}
-              >
-                <span className="option-letter">
-                  {String.fromCharCode(65 + index)}
-                </span>
-                <span>{option}</span>
-                {selected === index && (
-                  <span className="selection-label">Selected</span>
-                )}
-              </button>
-            ))}
-          </div>
+          {phase === 'ready' ? (
+            <div className="answers-concealed" aria-hidden="true">
+              <span className="conceal-mark">◇</span>
+              <span>Start the timer to reveal the question.</span>
+            </div>
+          ) : (
+            <div className="answer-options" aria-label="Answer choices">
+              {options.map((option, index) => (
+                <button
+                  key={option}
+                  className={`answer-option${selected === index ? ' selected' : ''}`}
+                  disabled={phase !== 'running'}
+                  aria-pressed={selected === index}
+                  data-option-index={index}
+                  onClick={handleAnswer}
+                >
+                  <span className="option-letter">
+                    {String.fromCharCode(65 + index)}
+                  </span>
+                  <span>{option}</span>
+                  {selected === index && (
+                    <span className="selection-label">Selected</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="question-controls">
             <p role="status">
               {phase === 'ready'

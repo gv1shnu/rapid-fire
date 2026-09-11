@@ -51,9 +51,15 @@ describe('App routing', () => {
     render(<App />);
     const banner = screen.getByText(/practice preview · not scored/i);
     expect(banner).toBeInTheDocument();
+    // The question stays concealed until the learner starts the timer.
     expect(
-      screen.getByRole('heading', { name: /which key identifies every row/i }),
+      screen.getByRole('button', { name: /start timer/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', {
+        name: /which key identifies every row/i,
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it('does not leak any answer-key vocabulary into the waiting screen markup', () => {
