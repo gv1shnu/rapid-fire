@@ -74,17 +74,13 @@ describe('Instructor setup preview', () => {
     expect(reviewButton()).toBeEnabled();
   });
 
-  it('disables pools that have no seeded questions', () => {
+  it('shows the next round read-only instead of a pool picker', () => {
     render(<Instructor />);
-    const pool = screen.getByLabelText(/question pool/i);
-    const empty = within(pool).getByRole('option', {
-      name: /round 3 · the cipher lock/i,
-    });
-    expect(empty).toBeDisabled();
-    const seeded = within(pool).getByRole('option', {
-      name: /round 2 · guild city/i,
-    });
-    expect(seeded).toBeEnabled();
+    // No round dropdown: rounds run in sequence, so the round is not chosen.
+    expect(screen.queryByLabelText(/question pool/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/round 01 · the vault of keys/i),
+    ).toBeInTheDocument();
   });
 
   it('releases after approval and starts the shared countdown', async () => {

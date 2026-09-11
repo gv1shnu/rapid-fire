@@ -489,6 +489,31 @@ footer {
   outline: 2px solid #e5bc75;
   outline-offset: 2px;
 }
+.field-label {
+  display: block;
+  font-size: 13px;
+  margin: 0 0 10px;
+  color: #d2d7ca;
+}
+.round-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #4a5749;
+  border-radius: 6px;
+  background: #101d17;
+  padding: 14px;
+  min-height: 48px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #eeeadd;
+}
+.round-heading .muted {
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
 .pool-count {
   display: flex;
   justify-content: space-between;

@@ -429,31 +429,18 @@ export function Instructor() {
                   <h2 id="setup-title">Configure rapid fire</h2>
                   <span className="muted">01 / SETUP</span>
                 </div>
-                <label htmlFor="round-pool">Question pool</label>
-                <select
-                  id="round-pool"
-                  value={roundId}
-                  disabled={review || busy}
-                  onChange={(event) => {
-                    setRoundId(Number(event.target.value));
-                    setReview(false);
-                  }}
-                >
-                  {pools.map((pool) => (
-                    <option
-                      key={pool.id}
-                      value={pool.id}
-                      disabled={
-                        pool.available_questions === 0 ||
-                        (!isPreview &&
-                          pool.id !==
-                            (connected?.session?.current_round ?? 0) + 1)
-                      }
-                    >
-                      Round {pool.id} · {pool.title}
-                    </option>
-                  ))}
-                </select>
+                {/* Rounds run in sequence, so the round is never chosen — it
+                    is always the next one. Shown read-only, not as a picker. */}
+                <p className="field-label">Up next</p>
+                <div className="round-heading">
+                  <span>
+                    Round {roundId.toString().padStart(2, '0')} ·{' '}
+                    {selectedPool?.title ?? '—'}
+                  </span>
+                  <span className="muted">
+                    {roundId} of {pools.length}
+                  </span>
+                </div>
                 <div className="pool-count">
                   <span>Total questions available</span>
                   <strong>{selectedPool?.available_questions ?? 0}</strong>
