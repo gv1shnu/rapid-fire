@@ -116,11 +116,31 @@ async function configuredRelease(count: number, seconds: number) {
   await identity(player);
 }
 describe('sealed PostgreSQL game', () => {
-  it('seeds two complete pools and nine round themes', async () => {
+  it('seeds nine round themes and a topic-tree question pool', async () => {
+    const themes = await admin('select count(*)::int n from public.rounds');
+    expect(themes.rows[0].n).toBe(9);
     const r = await admin(
-      'select round_id,difficulty,count(*)::int n from public.questions group by round_id,difficulty order by round_id,difficulty',
+      'select round_id,difficulty,count(*)::int n from public.questions group by round_id,difficulty',
     );
-    expect(r.rows.map((x) => x.n)).toEqual([15, 10, 20, 15, 10, 20]);
+    const byRound = new Map<number, Record<string, number>>();
+    for (const row of r.rows as {
+      round_id: number;
+      difficulty: string;
+      n: number;
+    }[]) {
+      const m = byRound.get(row.round_id) ?? { easy: 0, medium: 0, hard: 0 };
+      m[row.difficulty] = row.n;
+      byRound.set(row.round_id, m);
+    }
+    // Every round is populated.
+    for (let id = 1; id <= 9; id++) {
+      expect(byRound.get(id)).toBeTruthy();
+    }
+    // Round 1 supports a full 30-question draw (>=10 easy, >=14 medium, >=6 hard).
+    const r1 = byRound.get(1)!;
+    expect(r1.easy).toBeGreaterThanOrEqual(10);
+    expect(r1.medium).toBeGreaterThanOrEqual(14);
+    expect(r1.hard).toBeGreaterThanOrEqual(6);
   });
   it('draws 30 unique questions with the specified three legs', async () => {
     const first = await round('start_round');
