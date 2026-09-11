@@ -2,7 +2,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import { QuestionPreview } from './QuestionPreview';
+import { Instructor } from './Instructor';
 export function App() {
+  if (window.location.pathname === '/instructor') return <Instructor />;
   if (
     new URLSearchParams(window.location.search).get('preview') === 'question'
   ) {
@@ -15,7 +17,9 @@ export function App() {
           ⌘
         </span>
         <span>THE LOST SCHEMA</span>
-        <span className="badge">DBMS LAB</span>
+        <a className="badge brand" href="/instructor">
+          INSTRUCTOR →
+        </a>
       </header>
       <section>
         <p className="eyebrow">NINE ROUNDS. ONE EXPEDITION.</p>
