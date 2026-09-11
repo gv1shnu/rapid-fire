@@ -28,7 +28,14 @@ type DebriefItem = {
   explanation: string;
   points: number;
 };
-type Debrief = { round: number; items: DebriefItem[] };
+type Debrief = {
+  round: number;
+  items: DebriefItem[];
+  total_points: number;
+  best_streak: number;
+  cumulative_points: number;
+  leaderboard_position: number;
+};
 
 const LAST_ROUND = 9;
 const avatarSeed = () => Math.random().toString(36).slice(2, 10);
@@ -124,11 +131,26 @@ export function Play({ code }: { code: string }) {
     if (doneRound == null || !session) return;
     if (debrief?.round === doneRound || busy.current) return;
     busy.current = true;
-    void instructorRpc<{ questions: DebriefItem[] }>('submit_round', {
+    void instructorRpc<{
+      questions: DebriefItem[];
+      total_points: number;
+      best_streak: number;
+      cumulative_points: number;
+      leaderboard_position: number;
+    }>('submit_round', {
       p_session: session.session_id,
       p_round: doneRound,
     })
-      .then((r) => setDebrief({ round: doneRound, items: r.questions }))
+      .then((r) =>
+        setDebrief({
+          round: doneRound,
+          items: r.questions,
+          total_points: r.total_points,
+          best_streak: r.best_streak,
+          cumulative_points: r.cumulative_points,
+          leaderboard_position: r.leaderboard_position,
+        }),
+      )
       .catch((err) =>
         setError(
           err instanceof Error ? err.message : 'Could not load debrief.',
@@ -301,6 +323,24 @@ export function Play({ code }: { code: string }) {
               <span>Round {debrief.round.toString().padStart(2, '0')}</span>
               <span>Debrief · answers revealed</span>
             </div>
+            <div className="debrief-score">
+              <div>
+                <span>Round points</span>
+                <strong>{debrief.total_points}</strong>
+              </div>
+              <div>
+                <span>Best streak</span>
+                <strong>{debrief.best_streak}</strong>
+              </div>
+              <div>
+                <span>Total so far</span>
+                <strong>{debrief.cumulative_points}</strong>
+              </div>
+              <div>
+                <span>Position</span>
+                <strong>#{debrief.leaderboard_position}</strong>
+              </div>
+            </div>
             {debrief.items.map((item) => {
               const q = served[item.seq];
               return (
@@ -340,19 +380,18 @@ export function Play({ code }: { code: string }) {
                 </div>
               );
             })}
-            {debrief.round >= LAST_ROUND ? (
-              <a
-                className="practice-cta"
-                href="https://dilli-khoj.treasure-hunt-ru.workers.dev"
-              >
-                More coding practice on the basics → Dilli Khoj ↗
-              </a>
-            ) : (
+            {debrief.round < LAST_ROUND && (
               <p className="question-instruction">
                 Round complete. The next round begins when your instructor
                 releases it.
               </p>
             )}
+            <a
+              className="practice-cta"
+              href="https://dilli-khoj.treasure-hunt-ru.workers.dev"
+            >
+              More coding practice on the basics → Dilli Khoj ↗
+            </a>
           </div>
         ) : doneRound != null ? (
           <div className="question-card">
@@ -371,7 +410,7 @@ export function Play({ code }: { code: string }) {
         )}
       </section>
       <footer>
-        {debrief && debrief.round >= LAST_ROUND ? (
+        {debrief ? (
           <a className="credit" href="https://vishnugandarapu.in">
             Built by Vishnu Gandarapu ↗
           </a>

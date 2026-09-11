@@ -901,3 +901,33 @@ aside.release-summary {
 .practice-cta:hover {
   border-color: #e5bc75;
 }
+
+.debrief-score {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.debrief-score > div {
+  background: #16221f;
+  border: 1px solid #2a3a37;
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: center;
+}
+.debrief-score span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: #8f9c92;
+  margin-bottom: 4px;
+}
+.debrief-score strong {
+  font-size: 22px;
+  color: #e5bc75;
+}
+@media (max-width: 620px) {
+  .debrief-score {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
