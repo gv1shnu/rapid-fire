@@ -477,7 +477,7 @@ export function Instructor() {
                 )}
                 <div className="setting-inputs">
                   <div>
-                    <label htmlFor="question-count">Questions to release</label>
+                    <label htmlFor="question-count">Questions per round</label>
                     <input
                       id="question-count"
                       type="number"
@@ -493,8 +493,9 @@ export function Instructor() {
                       aria-describedby="count-help"
                     />
                     <p id="count-help">
-                      Out of {selectedPool?.available_questions ?? 0} available
-                      questions
+                      Each of the 9 rounds releases this many · out of{' '}
+                      {selectedPool?.available_questions ?? 0} available this
+                      round
                     </p>
                   </div>
                   <div>
