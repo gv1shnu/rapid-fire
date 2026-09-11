@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest';
 const host = '00000000-0000-0000-0000-000000000001';
 const player = '00000000-0000-0000-0000-000000000002';
@@ -28,12 +28,12 @@ type RpcResult = {
   leaderboard_position: number;
   error: { http_code: number };
 };
-async function rpc(
+async function rpc<T = RpcResult>(
   name: string,
   args: unknown[] = [],
   casts: string[] = [],
-): Promise<RpcResult> {
-  const result = await db.query<{ value: RpcResult }>(
+): Promise<T> {
+  const result = await db.query<{ value: T }>(
     `select public.${name}(${args.map((_, i) => `$${i + 1}${casts[i] ? `::${casts[i]}` : ''}`).join(',')}) as value`,
     args,
   );
@@ -62,15 +62,12 @@ beforeAll(async () => {
  grant usage on schema auth to authenticated; grant execute on function auth.uid() to authenticated;
  create table realtime.test_events(payload jsonb,event text,topic text,private boolean);
  create function realtime.send(payload jsonb,event text,topic text,private boolean) returns void language sql as $$ insert into realtime.test_events values(payload,event,topic,private) $$;`);
-  await db.exec(
-    readFileSync(
-      new URL(
-        '../supabase/migrations/202609110001_foundation.sql',
-        import.meta.url,
-      ),
-      'utf8',
-    ),
-  );
+  const migrations = new URL('../supabase/migrations/', import.meta.url);
+  for (const file of readdirSync(migrations)
+    .filter((name) => name.endsWith('.sql'))
+    .sort()) {
+    await db.exec(readFileSync(new URL(file, migrations), 'utf8'));
+  }
   await db.exec(
     readFileSync(new URL('../supabase/seed.sql', import.meta.url), 'utf8'),
   );
@@ -388,6 +385,146 @@ describe('sealed PostgreSQL game', () => {
     expect(
       d.questions.slice(0, 10).map((q: { points: number }) => q.points),
     ).toEqual([125, 125, 150, 150, 150, 188, 0, 125, 100, 0]);
+  });
+  it('logs scores and round metrics once, including the strict six-second boundary', async () => {
+    await round('start_round');
+    await admin(`update public.attempts a set
+      served_at='2026-01-01T00:00:00Z', answered_at='2026-01-01T00:00:06Z',
+      option_id=(select o.id from public.options o where o.question_id=a.question_id and o.is_correct)`);
+    await db.exec(`
+      update public.attempts set answered_at=served_at+interval '5.999 seconds' where seq=1;
+      update public.attempts set answered_at=served_at+interval '12.5 seconds' where seq=3;
+      update public.attempts set answered_at=served_at+interval '14 seconds',option_id=null where seq=4;
+      update public.attempts a set answered_at=served_at+interval '4 seconds',
+        option_id=(select o.id from public.options o where o.question_id=a.question_id and not o.is_correct limit 1) where seq=5;
+    `);
+    await identity(player);
+    const debrief = await round('submit_round');
+    expect(debrief.questions[3].points).toBe(0);
+    expect(debrief.questions[4].points).toBe(0);
+    expect(await round('submit_round')).toEqual(debrief);
+    const metrics = await admin(
+      'select correct_count,wrong_count,timeout_count,under_half_count from public.round_runs',
+    );
+    expect(metrics.rows).toEqual([
+      {
+        correct_count: 28,
+        wrong_count: 1,
+        timeout_count: 1,
+        under_half_count: 2,
+      },
+    ]);
+
+    // A second student's draw: every answer is wrong and takes two seconds.
+    const code = (await admin('select code from public.sessions')).rows[0].code;
+    await identity(host);
+    await rpc('join_session', [code, 'Instructor test player', 'seed']);
+    await round('start_round');
+    await admin(
+      `update public.attempts a set served_at='2026-01-01T00:00:00Z',
+      answered_at='2026-01-01T00:00:02Z',
+      option_id=(select o.id from public.options o where o.question_id=a.question_id and not o.is_correct limit 1)
+      where player_id=$1`,
+      [host],
+    );
+    await identity(host);
+    expect((await round('submit_round')).total_points).toBe(0);
+    await rpc('end_session', [session], ['uuid']);
+    type Report = {
+      summary: Record<string, number>;
+      students: {
+        player_id: string;
+        score: number;
+        average_answer_seconds: number;
+        accuracy_percent: number;
+      }[];
+      questions: {
+        students_under_half_time: number;
+        submitted_students: number;
+        accuracy_percent: number;
+      }[];
+    };
+    const report = await rpc<Report>(
+      'round_report',
+      [session, 1],
+      ['uuid', 'smallint'],
+    );
+    expect(report.summary.submitted_students).toBe(2);
+    expect(report.summary.incomplete_students).toBe(0);
+    expect(report.summary.students_with_under_half_answers).toBe(2);
+    expect(report.summary.answers_under_half_time).toBe(32);
+    expect(report.summary.average_accuracy_percent).toBeCloseTo(
+      (28 / 60) * 100,
+    );
+    expect(report.summary.average_round_answer_seconds).toBeCloseTo(
+      (192.499 + 60) / 2,
+    );
+    expect(report.summary.average_answer_seconds).toBeCloseTo(
+      (192.499 + 60) / 60,
+    );
+    const logged = report.students.find((r) => r.player_id === player)!;
+    expect(logged.score).toBe(debrief.total_points);
+    expect(logged.accuracy_percent).toBeCloseTo((28 / 30) * 100);
+    expect(logged.average_answer_seconds).toBeCloseTo(192.499 / 30);
+    expect(
+      report.questions.reduce((sum, q) => sum + q.students_under_half_time, 0),
+    ).toBe(32);
+    expect(
+      report.questions.reduce((sum, q) => sum + q.submitted_students, 0),
+    ).toBe(60);
+    expect(
+      report.questions.every(
+        (q) => q.accuracy_percent >= 0 && q.accuracy_percent <= 100,
+      ),
+    ).toBe(true);
+  });
+  it('restricts reports to the assigned instructor after the sitting', async () => {
+    await expect(round('round_report')).rejects.toThrow('host_only');
+    await identity(host);
+    await expect(round('round_report')).rejects.toThrow(
+      'report_available_after_session',
+    );
+    await rpc('end_session', [session], ['uuid']);
+    await identity(outsider);
+    await expect(round('round_report')).rejects.toThrow('host_only');
+    await identity(host, 'anon');
+    await expect(round('round_report')).rejects.toThrow('permission denied');
+    await identity(host);
+    await expect(
+      rpc('round_report', [session, 10], ['uuid', 'smallint']),
+    ).rejects.toThrow('invalid_round');
+    await admin('delete from public.allowed_domains');
+    await identity(host);
+    await expect(round('round_report')).rejects.toThrow('domain_not_allowed');
+    await admin("insert into public.allowed_domains values('college.example')");
+  });
+  it('excludes unfinished runs and returns null averages rather than invented zeros', async () => {
+    await round('start_round');
+    await admin(
+      "update public.sessions set closes_at=clock_timestamp()-interval '1 second'",
+    );
+    await identity(host);
+    const report = await rpc<{
+      summary: Record<string, number | null>;
+      students: unknown[];
+      questions: unknown[];
+    }>('round_report', [session, 1], ['uuid', 'smallint']);
+    expect(report.summary.submitted_students).toBe(0);
+    expect(report.summary.incomplete_students).toBe(1);
+    expect(report.summary.average_accuracy_percent).toBeNull();
+    expect(report.summary.average_answer_seconds).toBeNull();
+    expect(report.summary.students_with_under_half_answers).toBe(0);
+    expect(report.students).toEqual([]);
+    expect(report.questions).toEqual([]);
+  });
+  it('rejects negative points at the database layer', async () => {
+    await round('start_round');
+    await expect(
+      admin('update public.attempts set points=-1 where seq=1'),
+    ).rejects.toThrow('nonnegative_points');
+    await expect(
+      admin('update public.round_runs set total_points=-1'),
+    ).rejects.toThrow('nonnegative_total_points');
   });
   it('enforces four options with exactly one correct at commit', async () => {
     await admin('begin');
