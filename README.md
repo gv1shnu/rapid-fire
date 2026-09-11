@@ -4,8 +4,7 @@ A 2D treasure-hunt wrapper around rapid-fire SQL MCQs for the NST DBMS lab.
 120 students, all 9 rounds in one ~75-minute sitting, on free tiers.
 
 ## Docs
-- `PROMPT.md` — the build spec (paste below the divider into Codex; use GPT-6 Astra, high reasoning).
-- `docs/question-validation.md` — question rules, validated seed samples, and authoring progress.
+- `docs/PROMPT.md` — the build spec (paste below the divider into Codex; use GPT-6 Astra, high reasoning).
 
 ## Core rules
 - Sealed rounds: no hints, no feedback; answers revealed only at the end-of-round debrief.
