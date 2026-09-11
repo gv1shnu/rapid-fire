@@ -317,6 +317,57 @@ footer {
 .answer-option:disabled {
   cursor: default;
 }
+.answer-option.tempt {
+  position: relative;
+  animation: tempt-wobble 0.5s ease-in-out infinite;
+}
+.answer-option.tempt-red {
+  border-color: #e05a45;
+  box-shadow: 0 0 0 1px #e05a45;
+}
+.answer-option.tempt-blue {
+  border-color: #4a90d9;
+  box-shadow: 0 0 0 1px #4a90d9;
+}
+.tempter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex: none;
+}
+.tempter-bubble {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+.tempter-red .tempter-bubble {
+  background: #4a1b13;
+  color: #ffb9ab;
+}
+.tempter-blue .tempter-bubble {
+  background: #13314c;
+  color: #a9d2f5;
+}
+@keyframes tempt-wobble {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .answer-option.tempt {
+    animation: none;
+  }
+}
 .answer-option.selected {
   border-color: #d9be86;
   background: #354032;
