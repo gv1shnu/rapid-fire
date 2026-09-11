@@ -809,3 +809,95 @@ aside.release-summary {
     flex-direction: column;
   }
 }
+
+.credit {
+  color: #e5bc75;
+  text-decoration: none;
+  font-size: 13px;
+}
+.credit:hover {
+  text-decoration: underline;
+}
+.debrief {
+  display: grid;
+  gap: 16px;
+  padding: 8px 0 24px;
+}
+.debrief-q {
+  background: #16221f;
+  border: 1px solid #2a3a37;
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+.debrief-stem {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 14px;
+  color: #eeeadd;
+}
+.debrief-stem .muted {
+  color: #6f7d72;
+}
+.debrief-options {
+  display: grid;
+  gap: 8px;
+}
+.debrief-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #384740;
+  border-radius: 8px;
+  background: #131d19;
+  color: #cdd6cc;
+  font-size: 14px;
+}
+.debrief-option.correct {
+  border-color: #4a9d6e;
+  background: #16281f;
+  color: #dff3e6;
+}
+.debrief-option.wrong {
+  border-color: #a5544a;
+  background: #271916;
+  color: #f3ddd8;
+}
+.debrief-option .tag {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.debrief-option .correct-tag {
+  background: #1f4531;
+  color: #8fe0b0;
+}
+.debrief-option .wrong-tag {
+  background: #46251f;
+  color: #f0b3a8;
+}
+.debrief-explain {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #a7b4ab;
+  border-left: 2px solid #e5bc75;
+  padding-left: 12px;
+}
+.practice-cta {
+  display: block;
+  text-align: center;
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid #465448;
+  border-radius: 10px;
+  background: #14201b;
+  color: #e5bc75;
+  text-decoration: none;
+  font-weight: 600;
+}
+.practice-cta:hover {
+  border-color: #e5bc75;
+}

@@ -21,7 +21,16 @@ type Question = {
   question_count: number;
 };
 type Payload = Question | { round_complete: true };
+type DebriefItem = {
+  seq: number;
+  chosen_option: number | null;
+  correct_option: number;
+  explanation: string;
+  points: number;
+};
+type Debrief = { round: number; items: DebriefItem[] };
 
+const LAST_ROUND = 9;
 const avatarSeed = () => Math.random().toString(36).slice(2, 10);
 
 export function Play({ code }: { code: string }) {
@@ -31,6 +40,8 @@ export function Play({ code }: { code: string }) {
   const [session, setSession] = useState<SessionState | null>(null);
   const [question, setQuestion] = useState<Question | null>(null);
   const [doneRound, setDoneRound] = useState<number | null>(null);
+  const [served, setServed] = useState<Record<number, Question>>({});
+  const [debrief, setDebrief] = useState<Debrief | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState('');
@@ -102,8 +113,31 @@ export function Play({ code }: { code: string }) {
       setQuestion(payload);
       setSelected(null);
       setDoneRound(null);
+      setDebrief(null);
+      const q = payload;
+      setServed((prev) => (q.seq === 1 ? { 1: q } : { ...prev, [q.seq]: q }));
     }
   }, []);
+
+  // When a round finishes, fetch its debrief (questions, correct answers, explanations).
+  useEffect(() => {
+    if (doneRound == null || !session) return;
+    if (debrief?.round === doneRound || busy.current) return;
+    busy.current = true;
+    void instructorRpc<{ questions: DebriefItem[] }>('submit_round', {
+      p_session: session.session_id,
+      p_round: doneRound,
+    })
+      .then((r) => setDebrief({ round: doneRound, items: r.questions }))
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : 'Could not load debrief.',
+        ),
+      )
+      .finally(() => {
+        busy.current = false;
+      });
+  }, [doneRound, session, debrief]);
 
   // Start the current round when it is live and we are not already in it.
   useEffect(() => {
@@ -261,13 +295,69 @@ export function Play({ code }: { code: string }) {
                 : 'Your choice stays sealed until the debrief.'}
             </p>
           </div>
+        ) : debrief ? (
+          <div className="debrief">
+            <div className="round-label">
+              <span>Round {debrief.round.toString().padStart(2, '0')}</span>
+              <span>Debrief · answers revealed</span>
+            </div>
+            {debrief.items.map((item) => {
+              const q = served[item.seq];
+              return (
+                <div className="debrief-q" key={item.seq}>
+                  <p className="debrief-stem">
+                    <span className="muted">Q{item.seq}.</span>{' '}
+                    {q?.stem ?? 'Question'}
+                  </p>
+                  <div className="debrief-options">
+                    {q?.options.map((o, i) => {
+                      const correct = o.id === item.correct_option;
+                      const chosen = o.id === item.chosen_option;
+                      return (
+                        <div
+                          key={o.id}
+                          className={`debrief-option${correct ? ' correct' : ''}${
+                            chosen && !correct ? ' wrong' : ''
+                          }`}
+                        >
+                          <span className="option-letter">
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                          <span>{o.body.text}</span>
+                          {correct && (
+                            <span className="tag correct-tag">Correct</span>
+                          )}
+                          {chosen && !correct && (
+                            <span className="tag wrong-tag">Your pick</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {item.explanation && (
+                    <p className="debrief-explain">{item.explanation}</p>
+                  )}
+                </div>
+              );
+            })}
+            {debrief.round >= LAST_ROUND ? (
+              <a
+                className="practice-cta"
+                href="https://github.com/gv1shnu/treasure-hunt"
+              >
+                More coding practice on the basics → Dilli Khoj ↗
+              </a>
+            ) : (
+              <p className="question-instruction">
+                Round complete. The next round begins when your instructor
+                releases it.
+              </p>
+            )}
+          </div>
         ) : doneRound != null ? (
           <div className="question-card">
-            <h1>Round {doneRound.toString().padStart(2, '0')} complete.</h1>
-            <p className="question-instruction">
-              Sit tight — the next round begins when your instructor releases
-              it. Scores are revealed at the debrief.
-            </p>
+            <h1>Scoring round {doneRound.toString().padStart(2, '0')}…</h1>
+            <p className="question-instruction">Revealing your answers…</p>
           </div>
         ) : (
           <div className="question-card">
@@ -281,8 +371,16 @@ export function Play({ code }: { code: string }) {
         )}
       </section>
       <footer>
-        <span>One answer. One step forward.</span>
-        <span>No hints. No scores until the debrief.</span>
+        {debrief && debrief.round >= LAST_ROUND ? (
+          <a className="credit" href="https://vishnugandarapu.in">
+            Built by Vishnu Gandarapu ↗
+          </a>
+        ) : (
+          <>
+            <span>One answer. One step forward.</span>
+            <span>No hints. No scores until the debrief.</span>
+          </>
+        )}
       </footer>
     </main>
   );
