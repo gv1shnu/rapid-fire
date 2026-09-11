@@ -13,19 +13,27 @@ afterEach(() => {
 });
 
 describe('App routing', () => {
-  it('shows the waiting screen with instructor and practice links on the home path', () => {
+  it('shows the waiting screen and the practice link on the home path', () => {
     go('/');
     render(<App />);
     expect(
       screen.getByRole('heading', { name: /no lab is running right now/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /instructor/i })).toHaveAttribute(
-      'href',
-      '/instructor',
-    );
     expect(
       screen.getByRole('link', { name: /try the first question/i }),
     ).toHaveAttribute('href', '/?preview=question');
+  });
+
+  it('never advertises the instructor page to students on the public landing', () => {
+    go('/');
+    render(<App />);
+    expect(
+      screen.queryByRole('link', { name: /instructor/i }),
+    ).not.toBeInTheDocument();
+    // And no link anywhere on the landing points at /instructor.
+    for (const link of screen.queryAllByRole('link')) {
+      expect(link).not.toHaveAttribute('href', '/instructor');
+    }
   });
 
   it('renders the instructor control room at /instructor', () => {
