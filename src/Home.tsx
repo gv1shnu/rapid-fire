@@ -153,7 +153,9 @@ export function Home() {
       </aside>
       <footer>
         <span>Think fast. Keep exploring.</span>
-        <span>Answers revealed only after each round.</span>
+        <a className="credit" href="https://vishnugandarapu.in">
+          Built by Vishnu Gandarapu ↗
+        </a>
       </footer>
     </main>
   );
