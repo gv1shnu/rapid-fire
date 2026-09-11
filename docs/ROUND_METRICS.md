@@ -2,6 +2,8 @@
 
 Every successful `submit_round` persists one record per `(session_id, player_id, round_id)` in `public.round_runs`. Repeated submissions return the original debrief and do not add another score or metric record. No scoring or analytics is sent with a question or answer response.
 
+The count and timer are now configurable per release; **30 questions / 12 seconds are defaults**. The formulas below use those default examples. For other settings, replace 30 with the approved question count, 13 with approved seconds + 1, and 6 with approved seconds / 2. See [instructor releases](INSTRUCTOR_RELEASES.md).
+
 ## Per student, per round
 
 | Metric                   | Definition                                                                                                                                               |
@@ -21,7 +23,7 @@ The clock is the database clock, never a browser-supplied duration. Average time
 
 ## Instructor report
 
-Call `supabase.rpc('round_report', { p_session: sessionId, p_round: roundNumber })` after the sitting closes or expires. The database verifies the caller's domain, instructor allowlist entry and ownership of that session. Other students, other instructors and anonymous callers cannot retrieve it. During a sitting, the endpoint refuses detailed reports, preserving the existing counts-only instructor rule.
+Call `supabase.rpc('round_report', { p_session: sessionId, p_round: roundNumber })` after the selected rapid fire closes or expires. The database verifies the caller's domain, instructor allowlist entry and ownership of that session. Other students, other instructors and anonymous callers cannot retrieve it. While that rapid fire is active, the endpoint refuses detailed reports, preserving the counts-only instructor rule.
 
 The JSON result contains:
 
@@ -36,6 +38,6 @@ Half-time counts have explicit denominators:
 - `summary.students_with_under_half_answers`: distinct submitted students with at least one under-6-second selection. A student is counted once here.
 - `summary.answers_under_half_time`: total qualifying selections; a student can contribute up to 30.
 
-Question statistics only count students who received that question and submitted the round, since draws differ. Class statistics exclude incomplete rounds, which are counted separately. With no submitted rounds, averages are `null` and counts are zero; there is no fabricated 0% accuracy.
+Question statistics only count students who received that question and submitted the round, since draws differ. Expired or instructor-ended runs are automatically finalized as described in the release documentation, including forced timeouts for remaining questions. Any still-incomplete runs are counted separately. With no submitted rounds, averages are `null` and counts are zero; there is no fabricated 0% accuracy.
 
 This is implemented in `supabase/migrations/202609110002_round_metrics.sql`, including a backfill for existing submitted rounds. The instructor report UI and CSV export remain future work; the single-question practice preview does not log real student records.

@@ -81,7 +81,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await admin(
-    'truncate public.attempts,public.round_runs,public.sessions,public.players,realtime.test_events',
+    'truncate public.round_releases,public.attempts,public.round_runs,public.sessions,public.players,realtime.test_events',
   );
   await identity(host);
   const opened = await rpc(
@@ -96,6 +96,25 @@ beforeEach(async () => {
   await rpc('go_live', [session, 1], ['uuid', 'smallint']);
   await identity(player);
 });
+async function configuredRelease(count: number, seconds: number) {
+  await identity(host);
+  const opened = await rpc(
+    'open_session',
+    ['A', new Date(Date.now() + 75 * 60000).toISOString()],
+    ['text', 'timestamptz'],
+  );
+  session = opened.session_id;
+  await rpc(
+    'configure_round',
+    [session, 1, count, seconds],
+    ['uuid', 'smallint', 'smallint', 'smallint'],
+  );
+  await identity(player);
+  await rpc('join_session', [opened.code, 'Explorer', 'seed']);
+  await identity(host);
+  await rpc('go_live', [session, 1], ['uuid', 'smallint']);
+  await identity(player);
+}
 describe('sealed PostgreSQL game', () => {
   it('seeds two complete pools and nine round themes', async () => {
     const r = await admin(
@@ -498,7 +517,7 @@ describe('sealed PostgreSQL game', () => {
     await expect(round('round_report')).rejects.toThrow('domain_not_allowed');
     await admin("insert into public.allowed_domains values('college.example')");
   });
-  it('excludes unfinished runs and returns null averages rather than invented zeros', async () => {
+  it('automatically finalizes unfinished runs when a session expires', async () => {
     await round('start_round');
     await admin(
       "update public.sessions set closes_at=clock_timestamp()-interval '1 second'",
@@ -509,13 +528,13 @@ describe('sealed PostgreSQL game', () => {
       students: unknown[];
       questions: unknown[];
     }>('round_report', [session, 1], ['uuid', 'smallint']);
-    expect(report.summary.submitted_students).toBe(0);
-    expect(report.summary.incomplete_students).toBe(1);
-    expect(report.summary.average_accuracy_percent).toBeNull();
-    expect(report.summary.average_answer_seconds).toBeNull();
+    expect(report.summary.submitted_students).toBe(1);
+    expect(report.summary.incomplete_students).toBe(0);
+    expect(report.summary.average_accuracy_percent).toBe(0);
+    expect(report.summary.average_answer_seconds).toBeGreaterThanOrEqual(0);
     expect(report.summary.students_with_under_half_answers).toBe(0);
-    expect(report.students).toEqual([]);
-    expect(report.questions).toEqual([]);
+    expect(report.students).toHaveLength(1);
+    expect(report.questions).toHaveLength(30);
   });
   it('rejects negative points at the database layer', async () => {
     await round('start_round');
@@ -525,6 +544,220 @@ describe('sealed PostgreSQL game', () => {
     await expect(
       admin('update public.round_runs set total_points=-1'),
     ).rejects.toThrow('nonnegative_total_points');
+  });
+  it('uses the approved count and clock for a release larger than thirty questions', async () => {
+    await configuredRelease(40, 20);
+    const first = await round('start_round');
+    noKey(first);
+    const { rows } = await admin(
+      'select count(*)::int n from public.attempts where session_id=$1',
+      [session],
+    );
+    expect(rows[0].n).toBe(40);
+    const cfg = await admin(
+      'select extract(epoch from closes_at-started_at)::int duration from public.round_releases where session_id=$1',
+      [session],
+    );
+    expect(cfg.rows[0].duration).toBe(800);
+    await identity(host);
+    await expect(
+      rpc(
+        'configure_round',
+        [session, 1, 10, 5],
+        ['uuid', 'smallint', 'smallint', 'smallint'],
+      ),
+    ).rejects.toThrow('round_out_of_order');
+    await expect(
+      rpc('go_live', [session, 1], ['uuid', 'smallint']),
+    ).rejects.toThrow('round_out_of_order');
+  });
+  it('scales scoring, metrics, accuracy and half-time to the approved settings', async () => {
+    await configuredRelease(4, 20);
+    await round('start_round');
+    await admin(
+      `update public.attempts a set served_at='2026-01-01T00:00:00Z',answered_at='2026-01-01T00:00:10Z',
+      option_id=(select id from public.options where question_id=a.question_id and is_correct)
+      where session_id=$1`,
+      [session],
+    );
+    await admin(
+      "update public.attempts set answered_at=served_at+interval '9.999 seconds' where session_id=$1 and seq=1",
+      [session],
+    );
+    await admin(
+      "update public.attempts set answered_at=served_at+interval '20.5 seconds' where session_id=$1 and seq=3",
+      [session],
+    );
+    await admin(
+      "update public.attempts set answered_at=served_at+interval '22 seconds',option_id=null where session_id=$1 and seq=4",
+      [session],
+    );
+    await identity(player);
+    const d = await round('submit_round');
+    expect(d.questions.map((q) => q.points)).toEqual([125, 125, 120, 0]);
+    await expect(round('start_round')).rejects.toThrow(
+      'round_already_submitted',
+    );
+    await identity(host);
+    await rpc('end_round', [session, 1], ['uuid', 'smallint']);
+    const report = await rpc<{
+      half_time_seconds: number;
+      students: {
+        correct_count: number;
+        timeout_count: number;
+        accuracy_percent: number;
+        average_answer_seconds: number;
+        answers_under_half_time: number;
+      }[];
+    }>('round_report', [session, 1], ['uuid', 'smallint']);
+    expect(report.half_time_seconds).toBe(10);
+    expect(report.students[0].correct_count).toBe(3);
+    expect(report.students[0].timeout_count).toBe(1);
+    expect(report.students[0].accuracy_percent).toBe(75);
+    expect(report.students[0].average_answer_seconds).toBeCloseTo(62.499 / 4);
+    expect(report.students[0].answers_under_half_time).toBe(1);
+  });
+  it('rejects game calls at the shared deadline and preserves partial scores on finalization', async () => {
+    await configuredRelease(3, 20);
+    await round('start_round');
+    const correct = await admin(
+      'select o.id from public.options o join public.attempts a on a.question_id=o.question_id where a.session_id=$1 and a.seq=1 and o.is_correct',
+      [session],
+    );
+    await identity(player);
+    await rpc(
+      'submit_answer',
+      [session, 1, 1, correct.rows[0].id],
+      ['uuid', 'smallint', 'smallint', 'bigint'],
+    );
+    await admin(
+      "update public.round_releases set closes_at=clock_timestamp()-interval '1 second' where session_id=$1",
+      [session],
+    );
+    await identity(player);
+    for (const name of ['start_round', 'next_question', 'submit_round'])
+      await expect(round(name)).rejects.toThrow('round_ended');
+    await expect(
+      rpc(
+        'submit_answer',
+        [session, 1, 2, null],
+        ['uuid', 'smallint', 'smallint', 'bigint'],
+      ),
+    ).rejects.toThrow('round_ended');
+    await identity(host);
+    const state = await rpc<{ release: { status: string } }>(
+      'instructor_state',
+      [session],
+      ['uuid'],
+    );
+    expect(state.release.status).toBe('ended');
+    const report = await rpc<{
+      students: {
+        score: number;
+        correct_count: number;
+        timeout_count: number;
+      }[];
+    }>('round_report', [session, 1], ['uuid', 'smallint']);
+    expect(report.students[0].score).toBeGreaterThan(0);
+    expect(report.students[0].correct_count).toBe(1);
+    expect(report.students[0].timeout_count).toBe(2);
+    expect(
+      await rpc('round_report', [session, 1], ['uuid', 'smallint']),
+    ).toEqual(report);
+    await identity(player);
+    await expect(round('start_round')).rejects.toThrow('round_ended');
+  });
+  it('allows only the owner to end early, and ending is permanent and idempotent', async () => {
+    await configuredRelease(2, 15);
+    await round('start_round');
+    await expect(
+      rpc('end_round', [session, 1], ['uuid', 'smallint']),
+    ).rejects.toThrow('host_only');
+    await expect(rpc('instructor_state', [session], ['uuid'])).rejects.toThrow(
+      'host_only',
+    );
+    await expect(
+      rpc('score_run', [session, 1, player], ['uuid', 'smallint', 'uuid']),
+    ).rejects.toThrow('permission denied');
+    await expect(
+      rpc('finish_release', [session, 1], ['uuid', 'smallint']),
+    ).rejects.toThrow('permission denied');
+    await identity(host);
+    await rpc('end_round', [session, 1], ['uuid', 'smallint']);
+    await rpc('end_round', [session, 1], ['uuid', 'smallint']);
+    const rows = await admin(
+      'select correct_count,timeout_count from public.round_runs where session_id=$1',
+      [session],
+    );
+    expect(rows.rows).toEqual([{ correct_count: 0, timeout_count: 2 }]);
+    await identity(host);
+    await expect(
+      rpc('go_live', [session, 1], ['uuid', 'smallint']),
+    ).rejects.toThrow('round_out_of_order');
+    await identity(player);
+    await expect(round('start_round')).rejects.toThrow('round_ended');
+  });
+  it('validates instructor settings against the real question pool and sitting window', async () => {
+    await identity(host);
+    const opened = await rpc(
+      'open_session',
+      ['A', new Date(Date.now() + 75000).toISOString()],
+      ['text', 'timestamptz'],
+    );
+    const args = [opened.session_id, 1];
+    for (const count of [0, 46])
+      await expect(
+        rpc(
+          'configure_round',
+          [...args, count, 12],
+          ['uuid', 'smallint', 'smallint', 'smallint'],
+        ),
+      ).rejects.toThrow('invalid_question_count');
+    for (const seconds of [0, 121])
+      await expect(
+        rpc(
+          'configure_round',
+          [...args, 1, seconds],
+          ['uuid', 'smallint', 'smallint', 'smallint'],
+        ),
+      ).rejects.toThrow('invalid_question_seconds');
+    await rpc(
+      'configure_round',
+      [...args, 10, 20],
+      ['uuid', 'smallint', 'smallint', 'smallint'],
+    );
+    await expect(rpc('go_live', args, ['uuid', 'smallint'])).rejects.toThrow(
+      'release_exceeds_session_window',
+    );
+    await identity(player);
+    await expect(
+      rpc(
+        'configure_round',
+        [...args, 2, 10],
+        ['uuid', 'smallint', 'smallint', 'smallint'],
+      ),
+    ).rejects.toThrow('host_only');
+  });
+  it('enforces a custom per-question deadline while the overall release is still open', async () => {
+    await configuredRelease(2, 3);
+    const first = await round('start_round');
+    await admin(
+      "update public.attempts set served_at=clock_timestamp()-interval '4.1 seconds' where session_id=$1 and seq=1",
+      [session],
+    );
+    await identity(player);
+    noKey(
+      await rpc(
+        'submit_answer',
+        [session, 1, 1, first.options[0].id],
+        ['uuid', 'smallint', 'smallint', 'bigint'],
+      ),
+    );
+    const answer = await admin(
+      'select option_id from public.attempts where session_id=$1 and seq=1',
+      [session],
+    );
+    expect(answer.rows[0].option_id).toBeNull();
   });
   it('enforces four options with exactly one correct at commit', async () => {
     await admin('begin');
