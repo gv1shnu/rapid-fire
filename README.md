@@ -254,7 +254,8 @@ Following the milestone plan in the build spec:
   import time), and the analytics views + CSV export UI.
 - **M5 — Deploy & ops.** Cloudflare Pages deploy, keep-alive + backup automation,
   a k6 load test at 120–150 players, private signed-URL diagram delivery, and
-  the realtime + polling fallback verified under load.
+  the realtime + polling fallback verified under load. Step-by-step instructions
+  are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Pre-lab checklist (deployment milestone)
 
@@ -282,3 +283,4 @@ each for rounds 1 and 2 (15 easy, 20 medium, 10 hard). They deliberately repeat
 
 - [Supabase function security guidance](https://supabase.com/docs/guides/database/functions)
 - [Before User Created hook](https://supabase.com/docs/guides/auth/auth-hooks/before-user-created-hook)
+- [Deployment guide](docs/DEPLOYMENT.md) — Supabase, Google OAuth, and Cloudflare Pages, step by step
