@@ -134,7 +134,7 @@ export function Home() {
           Try the first question →
         </a>
         <p className="note">
-          30 questions per round · 12 seconds per question
+          Question count and time set by your instructor
           <br />
           No scores or hints until the debrief.
         </p>
@@ -149,10 +149,13 @@ export function Home() {
         <div className="trail" aria-hidden="true">
           ◇ ─ ◇ ─ ◇ ─ ◇ ─ ◇
         </div>
-        <span className="caption">30 QUESTIONS · 12 SECONDS EACH</span>
+        <span className="caption">ONE TIMER PER QUESTION</span>
       </aside>
       <footer>
-        <span>Think fast. Keep exploring.</span>
+        <span>
+          <a href="/privacy.html">Privacy policy</a> ·{' '}
+          <a href="/terms.html">Terms of service</a>
+        </span>
         <a className="credit" href="https://vishnugandarapu.in">
           Built by Vishnu Gandarapu ↗
         </a>

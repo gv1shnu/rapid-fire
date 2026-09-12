@@ -1,297 +1,130 @@
 # The Lost Schema
 
-A sealed, rapid-fire SQL treasure hunt for a university DBMS lab. Nine themed
-rounds, an instructor-controlled clock, and a strict rule that **no score, no
-correct answer and no explanation ever reaches the browser until a round's
-debrief**. Built to run ~120 students concurrently on free tiers within a
-75-minute sitting.
+A timed SQL assessment for the Rishihood / NST DBMS lab. Instructors approve a question count and seconds per question, release a shared question set, and review each student's results after closure. Students join with a college Google account and get one resumable attempt per round.
 
-The original end-to-end build specification lives in
-[docs/PROMPT.md](docs/PROMPT.md).
+Only `rishihood.edu.in` and `nst.rishihood.edu.in` are accepted. Google Spaces distribution is planned; the instructor currently copies the join URL manually.
 
----
+## Objective and current behavior
 
-## Objective
+- Each question has an independent, immutable server deadline. A refresh never restarts it.
+- Everyone receives the same frozen question set, with individual question order and opaque option tokens.
+- Correct answers, explanations and scores stay sealed until the release ends, including for early finishers.
+- Wrong answers and timeouts earn zero points. Scores cannot become negative.
+- Instructors can end a release early. Accepted answers are preserved; unanswered questions become timeouts.
+- Scores, correct/wrong/timeout counts, mean answering times, accuracy, and strict half-time counts are stored per student and round.
+- Closed results can be recovered after refresh. A completed run cannot be replayed.
 
-Give a DBMS class a fair, fun, cheat-resistant way to drill SQL and relational
-concepts under time pressure:
+## Technology stack
 
-- **Fairness by construction.** Every student in a section shares one countdown
-  and gets exactly one attempt per round. Reconnecting, refreshing, editing the
-  browser clock, or opening a second tab never buys more time or a second draw.
-- **Sealed play.** The server serves only the current question and its options —
-  never the answer key, the scoring, or another student's data. Results are
-  revealed in a single end-of-round debrief.
-- **Instructor control.** The instructor picks the question pool, the count and
-  the per-question timer, reviews, and releases. They can end a round early and
-  read per-student / per-question analytics after it closes.
+| Layer         | Technology / responsibility                                                            |
+| ------------- | -------------------------------------------------------------------------------------- |
+| Interface     | React 19, strict TypeScript, accessible HTML/CSS                                       |
+| Build         | Vite; static `dist/` output                                                            |
+| Identity      | Supabase Auth, Google `openid email profile`                                           |
+| Backend       | PostgreSQL 17 / Supabase; server-authoritative RPCs                                    |
+| Authorization | RLS, revoked table access, explicit session membership, instructor email allowlist     |
+| Tests         | Vitest, React Testing Library, real migrations in PGlite, PostgreSQL concurrency suite |
+| Quality       | ESLint, Prettier, TypeScript, GitHub Actions, local pre-push verification              |
+| Hosting       | Static hosting; Cloudflare Pages headers and SPA fallback included                     |
 
-## Current status
+## Setup
 
-Implemented so far:
-
-- Strict TypeScript + Vite + React scaffold; Phaser 4 dependency wired for the
-  playable milestone.
-- Complete Supabase/PostgreSQL foundation: schema, row-level security, the
-  Google-domain sign-up hook, trusted roster + instructor authorization, all
-  game and host RPCs, server-side timing and scoring, cumulative placement, and
-  configurable per-round releases with analytics.
-- A **single Google sign-in** on the landing that routes by role from the
-  instructor allowlist: instructors get an entry to the control room, everyone
-  else becomes a signed-in student on a **waiting screen** (the student
-  join/play loop itself is still pending). Plus a **one-question practice
-  preview** (`/?preview=question`, local timer, concealed until start, no
-  scoring), and the **instructor control room** (`/instructor`) with pool
-  counts, configurable count/timer, review + approval, a shared countdown and
-  early closure.
-- An elaborate automated test suite (database + React components) and a
-  pre-push validation hook.
-
-Pending (see [Roadmap](#roadmap)): student auth/lobby, the Phaser trail and card
-renderers, the debrief UI, realtime broadcast delivery, the reviewed authoring
-pipeline, analytics UI/CSV, and deployment + load testing.
-
-## Tech stack
-
-| Layer              | Choice                                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| **Language**       | TypeScript (strict), PL/pgSQL                                                                         |
-| **Build / dev**    | Vite 8                                                                                                |
-| **UI**             | React 19                                                                                              |
-| **2D map / trail** | Phaser 4 (mounted in React; playable milestone)                                                       |
-| **Backend**        | Supabase — PostgreSQL 17 as the source of truth; game logic in `SECURITY DEFINER` functions via `rpc` |
-| **Auth**           | Supabase Auth, Google provider only, scopes `openid email profile`, domain-locked                     |
-| **Realtime**       | Supabase Realtime Broadcast for host events only, with a 3-second polling fallback                    |
-| **Tests**          | Vitest, PGlite (embedded Postgres), Testing Library + jsdom                                           |
-| **Quality gates**  | ESLint, Prettier, `tsc`, and a git pre-push hook                                                      |
-| **Hosting (plan)** | Cloudflare Pages (static); round art/audio from Pages to protect Supabase egress                      |
-
-## Setup and usage
-
-Requires **Node 22.12+** (tested on Node 25.9) and npm.
+Use Node.js 22.12+ (CI uses Node 22) and npm.
 
 ```sh
-npm ci          # install; also points git at the .githooks pre-push hook
-npm run verify  # format:check + lint + test + build (what the pre-push hook runs)
-npm run dev     # http://127.0.0.1:5173
+npm ci
+cp .env.example .env.local
+npm run dev
 ```
 
-Individual scripts:
+Without Supabase environment values, `/instructor` is an explicit setup preview and `/?preview=question` is public practice. They do not record real scores.
 
-```sh
-npm test            # Vitest: database suite (PGlite) + React component suites
-npm run test:watch  # watch mode
-npm run build       # tsc -b && vite build
-npm run lint        # ESLint
-npm run format      # Prettier write
+For connected play:
+
+1. Create a Supabase project and apply **all migrations in order**. Migration 008 is a protocol change; apply it between sittings and deploy the matching frontend together.
+2. The migration provisions the two allowed domains. Enable Google Auth and the `before_user_created` hook. Configure exact production redirect URLs as described in [deployment](docs/DEPLOYMENT.md).
+3. Insert approved instructor emails into `public.instructor_emails`. They must belong to one of the allowed domains. Students require no roster provisioning.
+4. Import your private production question bank. `supabase/seed.sql` is a public, 174-question practice fixture, **not a secret assessment bank**. Never import it into a graded production sitting. Never run a destructive seed reset against existing results.
+5. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local` and your hosting build environment. Only a publishable or legacy anon key belongs in the browser; never a service-role key.
+
+```sql
+insert into public.instructor_emails (email)
+values ('approved-instructor@rishihood.edu.in');
 ```
 
-`npm test` runs the real migrations and seed inside **PGlite**, an embedded
-PostgreSQL engine — no Docker and no Supabase credentials needed. Only the
-Supabase-owned `auth.users`, `auth.uid()` and `realtime.send()` interfaces are
-stubbed; game logic, grants, RLS, constraints and scoring execute in real
-PostgreSQL.
+The example is a placeholder; use the actual approved instructor account.
 
-For the full local Supabase stack, install Docker and the Supabase CLI:
+## Usage and timing
 
-```sh
-supabase start
-supabase db reset   # destroys the LOCAL dev DB and reloads the seed — never run against teaching data
-```
+Open `/instructor`, sign in, select a section, choose the question count and 1–120 seconds per question, review, then release. The UI calculates **nominal answering time = count × seconds** and shows the join URL.
 
-### Environment
+That duration also defines the joining window. A student who starts within it keeps their individual question timers after the joining window closes. Each accepted answer immediately serves the next question. Unanswered questions advance from their original deadlines even while disconnected; reconnecting catches up instead of granting extra time.
 
-Copy `.env.example` to `.env.local` for the instructor's Supabase connection:
+The release ends automatically once admission closes and all started attempts are finished, or when the instructor ends it. The separate session cutoff (maximum three hours) is a hard termination boundary. Early termination can interrupt a question; it is not described as normal per-question expiry. Finalization is materialized on the next state/report call; server time checks apply even without an open instructor tab.
 
-| Variable                        | Purpose                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------ |
-| `VITE_SUPABASE_URL`             | Public project API URL; local default is `http://127.0.0.1:54321`.                   |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Public Supabase publishable key. Never put a service-role key in a `VITE_` variable. |
+Students see a sealed receipt when finished. After closure they can review their saved answers and explanations. The instructor can configure the next round; previous settings are retained subject to the next pool's size.
 
-When both are present the instructor page connects for real; otherwise it runs
-as a clearly labelled offline setup preview. Nothing secret is needed for tests.
-
-### Provisioning (trusted SQL connection only — never browser writes)
-
-1. **Allowed domains.** Insert the college domains into `public.allowed_domains`:
-
-   ```sql
-   insert into public.allowed_domains (domain) values
-     ('rishihood.edu.in'),
-     ('nst.rishihood.edu.in'),
-     ('newtonschool.co');
-   ```
-
-2. **Roster.** Import lowercase student/staff emails and their sections into
-   `public.roster (email, section)`.
-3. **Instructors.** Add each host's email to `public.instructor_emails` up
-   front — no prior sign-in needed. They become instructors on their first
-   Google sign-in; everyone else on an allowed domain stays a player/student.
-
-   ```sql
-   insert into public.instructor_emails (email) values
-     ('instructor@rishihood.edu.in');
-   ```
-
-4. **Google OAuth.** Enable only the Google provider with `openid email profile`;
-   keep email signup disabled. Store the client ID/secret in Supabase provider
-   settings, never in the frontend. Add the deployed origin's `/instructor` path
-   to the OAuth redirect allowlist.
-5. **Sign-up hook.** Enable `public.before_user_created` as the **Before User
-   Created** hook in hosted Supabase (local config is in
-   `supabase/config.toml`).
-
-The hook requires an exact allowed domain **and** Google provider metadata.
-Every RPC re-checks the verified user's provider and domain against
-`auth.users`; section membership comes from the administrator-managed roster —
-user-editable profile metadata is never an authority.
-
-### Google OAuth consent screen (External)
-
-When registering the OAuth app as **External**, Google asks for an app
-logo, a privacy policy URL and a terms-of-service URL. This repo ships all
-three as static assets served from the site root:
-
-| Asset            | Served at         | Source                                         |
-| ---------------- | ----------------- | ---------------------------------------------- |
-| Privacy Policy   | `/privacy.html`   | [public/privacy.html](public/privacy.html)     |
-| Terms of Service | `/terms.html`     | [public/terms.html](public/terms.html)         |
-| App logo (120px) | upload in console | [public/brand-logo.png](public/brand-logo.png) |
-
-Set the app's **Authorized domains** to `rishihood.edu.in` and
-`newtonschool.co` (these are the registrable domains; `nst.rishihood.edu.in` is
-covered by `rishihood.edu.in`). Both legal pages already name
-`rishihood.edu.in`, `nst.rishihood.edu.in` and `newtonschool.co` as the only
-accepted sign-in domains; edit the contact line in each page before publishing.
+See [release behavior](docs/INSTRUCTOR_RELEASES.md) and [metric definitions](docs/ROUND_METRICS.md).
 
 ## Architecture
 
-```
-Browser (React + Vite, no secrets)
-  │  supabase.rpc(...)           Google sign-in (openid email profile)
-  ▼
-Supabase Auth ──► before_user_created hook  (Google + allowed domain only)
-  │
-  ▼
-PostgreSQL (source of truth)
-  ├─ Tables: allowed_domains, roster, instructor_emails, rounds, questions, options,
-  │          players, sessions, round_releases, round_runs, attempts
-  ├─ RLS on every table; browser roles have NO direct table access
-  └─ SECURITY DEFINER functions (the only granted surface):
-       student:   join_session, start_round, next_question, submit_answer, submit_round
-       instructor: open_session, configure_round, go_live, end_round, end_session,
-                   instructor_state, round_report
-       internal (not granted): assert_domain, assert_live, assert_release,
-                   serve_pending, lock_round, score_run, finish_release, validate_mcq
+```text
+React browser
+  ├─ Google OAuth → Supabase Auth → exact domain / verified provider checks
+  └─ Supabase RPC
+       ├─ instructor: open_session, configure_round, go_live, end_round,
+       │              end_session, instructor_state, round_report
+       ├─ student: join_session, student_state, start_round, next_question,
+       │           submit_answer, submit_round, my_result
+       └─ private helpers / tables (no direct browser access)
+            sessions + session_members → round_releases
+              → release_questions (frozen content and keys)
+              → round_runs → attempts (opaque option tokens, immutable clocks)
 ```
 
-Key design decisions:
+Student operations lock the session before the student's run. Instructor closure locks the session before finalizing runs. Duplicate submissions cannot change an accepted answer or produce duplicate scores. The student controller serializes requests, retains uncertain submissions for identical retries, backs off failures, validates responses, and ignores responses after unmount/sign-out. It anchors visual time to server timestamps and `performance.now()`.
 
-- **No answer keys in the client.** Serving functions build an explicit payload
-  allowlist (option id + display body only). A recursive test asserts that no
-  served payload ever contains `is_correct`, `explanation`, `misconception`,
-  `correct_option`, `points`, `score` or `streak`.
-- **Server owns the clock.** A question's timer starts on its first real serve
-  (`served_at`), not up front. `clock_timestamp()` measures true server time.
-  Answers past the approved seconds + 1s grace become NULL timeouts; the shared
-  release deadline overrides per-question grace.
-- **One attempt, idempotent.** `(session_id, player_id, round_id)` identifies a
-  run; a transaction lock plus a persisted `debrief` make retries return the
-  same result. Ending a release is permanent and cannot reopen.
-- **Configurable releases.** Each round freezes its own `question_count` and
-  `seconds_per_question` at release; scoring, metrics, accuracy and the
-  half-time threshold all scale to those approved settings.
-- **Deferred constraint triggers** enforce exactly four options with exactly one
-  correct answer, so authors insert a question and its options in one
-  transaction.
+`src/question-catalogue.json` contains only public preview counts/titles, generated alongside the development seed. The browser never imports the seed or answer bank. Historical migrations are retained for upgrades; the old roster table is legacy data, not an access-control mechanism.
 
-See [docs/INSTRUCTOR_RELEASES.md](docs/INSTRUCTOR_RELEASES.md) and
-[docs/ROUND_METRICS.md](docs/ROUND_METRICS.md) for the release lifecycle and
-metric definitions.
+## Tests and push protection
 
-### Database API
+```sh
+npm run verify             # formatting, lint, tests, typecheck and production build
+npm run test:watch
+npm run hooks:install       # also installed by ordinary npm ci/install
+```
 
-| RPC                                                 | Behavior                                                                                                                   |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `join_session(code, nickname, avatar_seed)`         | Joins a lobby/live session within its closing time; verifies the roster section. Returns session metadata only.            |
-| `start_round(p_session, p_round)`                   | Creates one immutable draw of the approved size. Returns question 1, or the pending question on retry.                     |
-| `next_question(p_session, p_round)`                 | Resumes the pending question without changing its timer.                                                                   |
-| `submit_answer(p_session, p_round, seq, option_id)` | Records an answer or timeout and returns only the next question. Pass NULL for a timeout after the approved question time. |
-| `submit_round(p_session, p_round)`                  | Requires the approved count of answers/timeouts. Scores and returns the one debrief with cumulative points and placement.  |
-| `open_session(p_section, p_closes_at)`              | Allowlisted instructors only. Creates a six-letter lobby code; closing time must be within three hours.                    |
-| `configure_round(p_session, p_round, count, secs)`  | Assigned instructor. Saves a draft release (count 1–pool, seconds 1–120) before go-live.                                   |
-| `go_live(p_session, p_round)`                       | Assigned instructor. Freezes settings, starts the shared countdown, advances exactly one round in order.                   |
-| `end_round(p_session, p_round)`                     | Assigned instructor. Ends a release early; remaining questions become forced-timeout zeros.                                |
-| `end_session(p_session)`                            | Assigned instructor. Finalizes and closes the sitting.                                                                     |
-| `instructor_state(p_session)`                       | Assigned instructor. Pool counts, sections, current release + countdown; also finalizes expired runs.                      |
-| `round_report(p_session, p_round)`                  | Assigned instructor, after the round closes. Per-student, per-question and class summaries.                                |
+The database suite executes actual migrations and seed SQL, covering authorization, sealed payloads, session membership, immutable submissions, timing, scoring, snapshots and recoverable results. Student component tests cover clocks, network failures, lifecycle changes and malformed responses.
 
-Host functions emit private `session_opened`, `round_started` and
-`session_ended` Broadcast events to `session:<uuid>`. No answer events are ever
-emitted.
+For real transaction/concurrency tests, use a **disposable PostgreSQL 17 database whose name ends in `_test`**. The suite recreates its public/auth/realtime schemas. Never point this at Supabase or production.
 
-## Testing
+```sh
+POSTGRES_TEST_URL=postgresql://localhost/rapid_fire_test npm run verify
+```
 
-The suite is designed so that a red test blocks a push (`npm run verify` is what
-the [pre-push hook](.githooks/pre-push) runs).
+CI provisions that database and runs concurrent starts for 120 students, duplicate submissions, and instructor closure racing submissions. This verifies transaction behavior, not hosted Supabase capacity or campus network latency.
 
-- **Database suite** (`tests/database.test.ts`, Node + PGlite): draw
-  composition, unseen clocks, immutable retries, a recursive no-key-leak
-  assertion over every served payload, early-submission and invalid-option
-  attacks, server timeouts, closed/lobby/expired/ended gates, domain and section
-  restrictions, direct-table and internal-helper denial, the sign-up hook,
-  host-only authorization and ordering, full-round scoring with streak
-  thresholds and reset, round handoff, configurable releases above 30 questions,
-  scaled scoring/metrics/half-time, partial-run finalization, and the
-  four-options-one-correct constraint.
-- **React component suites** (jsdom + Testing Library): App route selection;
-  the practice preview's sealed phases, timeout and retry with fake timers; the
-  instructor control room's validation, duration math, disabled empty pools,
-  approval → live countdown, confirmed early end, next-round handoff, and
-  session-storage persistence; and the public preview catalogue's shape and
-  absence of any answer-key fields.
+GitHub Actions checks the pushed revision. Configure branch protection to require the `verify` check and disallow bypasses. A local hook alone cannot prevent erroneous pushes. Hosting should deploy only revisions whose required checks pass.
 
-## Roadmap
+## Production release
 
-Following the milestone plan in the build spec:
+Favicons, the web manifest, public privacy/terms pages, SPA fallback and security headers are included. Complete the approved contact address and actual public origin before publishing. Do not confuse allowed **email domains** with Google's authorized **web domains**.
 
-- **M2 — Auth & lobby.** Google sign-in, domain lock end to end, player join and
-  section lobby, and instructor open/go-live/end against hosted Supabase.
-- **M3 — Sealed rapid-fire loop.** The Phaser 30-tile trail, all eight card
-  renderers, Round 1 fully themed, the end-of-round debrief UI, the
-  round-to-round handoff, and the cumulative between-round leaderboard.
-- **M4 — Signature rounds & authoring.** Rounds 3 and 5 with their mechanics, the
-  reviewed CSV/Sheet import pipeline (Shiki highlighting and diagram SVGs at
-  import time), and the analytics views + CSV export UI.
-- **M5 — Deploy & ops.** Cloudflare Pages deploy, keep-alive + backup automation,
-  a k6 load test at 120–150 players, private signed-URL diagram delivery, and
-  the realtime + polling fallback verified under load. Step-by-step instructions
-  are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+```sh
+PUBLIC_APP_URL=https://your-real-origin \
+SUPPORT_EMAIL=your-monitored-address \
+PRODUCTION_QUESTION_BANK_CONFIRMED=yes \
+npm run release:check
+```
 
-### Pre-lab checklist (deployment milestone)
+Also set the two public Supabase variables. This explicit check fails if legal contact placeholders remain or the deployment settings are missing. [Deployment instructions](docs/DEPLOYMENT.md) cover OAuth, migrations, headers, staging acceptance and operational limits.
 
-- Confirm the Supabase project is awake and backups are restorable.
-- Verify and raise auth per-IP limits for the shared campus IP; have students
-  sign in beforehand.
-- Confirm Google-only auth, the domain hook, roster sections and the instructor
-  allowlist.
-- Replace development fixtures with reviewed pools for all nine rounds.
-- Set one `closes_at` for the whole sitting and rehearse round handoffs.
-- Verify question clearing on closure, private diagram expiry, realtime and the
-  polling fallback.
-- Run the load test at 120–150 players; this repo is not yet a capacity
-  certification.
+## Future additions
 
-## Sample content
+- Google Spaces link distribution after instructor approval.
+- Instructor analytics interface and CSV export over the existing report RPC.
+- Round-specific stories, visual themes, and the expedition trail.
+- Realtime notifications to replace periodic status polling.
+- Deployment-specific monitoring, campus load rehearsals and retention automation.
 
-`supabase/seed.sql` contains all nine round themes and 45 development fixtures
-each for rounds 1 and 2 (15 easy, 20 medium, 10 hard). They deliberately repeat
-15 concepts with synthetic difficulty labels to exercise pool selection and are
-**not reviewed classroom content**. Regenerate with
-`node scripts/generate-seed.mjs`.
-
-## Further reading
-
-- [Supabase function security guidance](https://supabase.com/docs/guides/database/functions)
-- [Before User Created hook](https://supabase.com/docs/guides/auth/auth-hooks/before-user-created-hook)
-- [Deployment guide](docs/DEPLOYMENT.md) — Supabase, Google OAuth, and Cloudflare Pages, step by step
+The original product plan is preserved in [docs/PROMPT.md](docs/PROMPT.md). Current timing and security behavior above supersedes its earlier fixed/shared timing assumptions.

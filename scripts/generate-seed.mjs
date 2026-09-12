@@ -1704,6 +1704,19 @@ sql += 'commit;\n';
 
 writeFileSync(new URL('../supabase/seed.sql', import.meta.url), sql);
 
+writeFileSync(
+  new URL('../src/question-catalogue.json', import.meta.url),
+  JSON.stringify(
+    rounds.map((r) => ({
+      id: r.id,
+      title: r.title,
+      available_questions: r.questions.length,
+    })),
+    null,
+    2,
+  ) + '\n',
+);
+
 const counts = rounds.map((r) => `R${r.id}=${r.questions.length}`).join(' ');
 console.log(
   `Wrote supabase/seed.sql: ${counts} (total ${rounds.reduce((n, r) => n + r.questions.length, 0)})`,

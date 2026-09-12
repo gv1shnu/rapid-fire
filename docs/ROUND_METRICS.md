@@ -1,43 +1,31 @@
-# Round score and response metrics
+# Round scores and response metrics
 
-Every successful `submit_round` persists one record per `(session_id, player_id, round_id)` in `public.round_runs`. Repeated submissions return the original debrief and do not add another score or metric record. No scoring or analytics is sent with a question or answer response.
+One `round_runs` row is stored per `(session_id, player_id, round_id)`. Finalization is idempotent. Wrong answers and timeouts score **zero**; database constraints reject negative scores. Scores and keys never accompany a live question, answer acknowledgement or early completion receipt.
 
-The count and timer are now configurable per release; **30 questions / 12 seconds are defaults**. The formulas below use those default examples. For other settings, replace 30 with the approved question count, 13 with approved seconds + 1, and 6 with approved seconds / 2. See [instructor releases](INSTRUCTOR_RELEASES.md).
+For approved count **N** and seconds per question **T**:
 
-## Per student, per round
+| Metric                  | Definition                                                              |
+| ----------------------- | ----------------------------------------------------------------------- |
+| Correct                 | Correct selections received strictly before their deadline              |
+| Wrong                   | Incorrect selections received strictly before their deadline            |
+| Timeout                 | No timely selection, including unanswered questions at forced closure   |
+| Total answer seconds    | Sum of observed answering time; ordinary timeouts count T seconds       |
+| Average answer seconds  | Total answer seconds / N                                                |
+| Accuracy percent        | Correct / N × 100                                                       |
+| Answers under half time | Selections received strictly before T / 2; both correct and wrong count |
 
-| Metric                   | Definition                                                                                                                                               |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Score                    | Sum of the 30 server-computed question scores; wrong answers and timeouts score **0**, never a deduction. Database constraints prohibit negative scores. |
-| Correct                  | Number of accepted correct answers.                                                                                                                      |
-| Wrong                    | Number of accepted wrong selections.                                                                                                                     |
-| Timeout                  | No selection, or an answer received after the 13-second server deadline (12 seconds + 1 second latency grace).                                           |
-| Total answer time        | Sum of server-measured elapsed times for all 30 MCQs.                                                                                                    |
-| Average answer time      | Total answer time divided by 30, in seconds.                                                                                                             |
-| Accuracy                 | Correct divided by 30, multiplied by 100. Timeouts contribute zero correct answers.                                                                      |
-| Answers before half-time | Number of selections received **strictly before 6 seconds** elapsed. Both right and wrong selections count. Exactly 6 seconds does not count.            |
+Correct + wrong + timeout = N. Exactly T/2 does not qualify as early; exactly T is a timeout. There is no extra one-second scoring grace. Time between questions is excluded. Offline timeout processing uses the original deadline, not the later reconnect time. Never-served questions at forced closure have no timestamps and contribute zero observed time while remaining in the accuracy denominator. A served question interrupted early contributes time up to termination, capped at T. Interpret averages alongside timeout counts.
 
-Correct + wrong + timeout = 30. Timeouts are reported separately from wrong selections to distinguish lack of an answer from a misconception. If a combined unsuccessful count is needed, it is wrong + timeout.
-
-The clock is the database clock, never a browser-supplied duration. Average times include timeout durations as actually recorded, including late/offline submissions beyond 13 seconds. These are observed response times, not capped at the allotted duration. Total answering time excludes story panels, breaks and time between questions.
+A timely correct answer earns `round((100 + 50 × remaining_seconds / T) × multiplier)`. The streak multiplier is 1, then 1.2 from the third consecutive correct answer, then 1.5 from the sixth. Wrong answers/timeouts reset the streak.
 
 ## Instructor report
 
-Call `supabase.rpc('round_report', { p_session: sessionId, p_round: roundNumber })` after the selected rapid fire closes or expires. The database verifies the caller's domain, instructor allowlist entry and ownership of that session. Other students, other instructors and anonymous callers cannot retrieve it. While that rapid fire is active, the endpoint refuses detailed reports, preserving the counts-only instructor rule.
+After closure, call `round_report(p_session, p_round)` as the assigned instructor. It returns:
 
-The JSON result contains:
+- `students`: ID, nickname, score, correct/wrong/timeout counts, total and average time, accuracy, early-answer count and submission timestamp.
+- `summary`: submitted/incomplete counts; averages of scores, correct/wrong/timeout counts, total answering time and per-student mean answering time; average accuracy; early-answer totals.
+- `questions`: number of submitted students assigned the question, correct/wrong/timeout counts, average time, accuracy and `students_under_half_time`.
 
-- `students`: each submitted student's ID, nickname, score, correct/wrong/timeout counts, total/average answering time, accuracy, early-answer count and submission timestamp.
-- `summary`: number submitted and number of started-but-incomplete runs; average score, correct/wrong/timeout counts, total answering time per student, per-MCQ answer time, and average accuracy percentage.
-- `questions`: per-question submitted student count, correct/wrong/timeout counts, mean response time, accuracy, and `students_under_half_time`.
+`summary.students_with_under_half_answers` counts each qualifying student once. `summary.answers_under_half_time` counts every qualifying selection. `questions[].students_under_half_time` answers “how many students submitted before half of this question's duration?”
 
-Half-time counts have explicit denominators:
-
-- `questions[].students_under_half_time`: how many submitted students answered **that MCQ** in under 6 seconds.
-- `students[].answers_under_half_time`: how many of a student's 30 selections met the threshold.
-- `summary.students_with_under_half_answers`: distinct submitted students with at least one under-6-second selection. A student is counted once here.
-- `summary.answers_under_half_time`: total qualifying selections; a student can contribute up to 30.
-
-Question statistics only count students who received that question and submitted the round, since draws differ. Expired or instructor-ended runs are automatically finalized as described in the release documentation, including forced timeouts for remaining questions. Any still-incomplete runs are counted separately. With no submitted rounds, averages are `null` and counts are zero; there is no fabricated 0% accuracy.
-
-This is implemented in `supabase/migrations/202609110002_round_metrics.sql`, including a backfill for existing submitted rounds. The instructor report UI and CSV export remain future work; the single-question practice preview does not log real student records.
+Empty reports have zero counts and null averages, not fabricated zero-percent accuracy. The report UI and CSV export are planned; the protected RPC and stored metrics are implemented and tested.

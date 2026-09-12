@@ -57,7 +57,7 @@ describe('Home sign-in and role routing', () => {
   });
 
   it('shows a waiting screen for a signed-in student, with no instructor link', async () => {
-    h.session.value = { user: { email: 'student@newtonschool.co' } };
+    h.session.value = { user: { email: 'student@rishihood.edu.in' } };
     h.rpc.mockRejectedValue(new Error('host_only'));
     render(<Home />);
     expect(
@@ -75,7 +75,7 @@ describe('Home sign-in and role routing', () => {
   });
 
   it('routes a signed-in instructor to the control room', async () => {
-    h.session.value = { user: { email: 'satyaki.das@newtonschool.co' } };
+    h.session.value = { user: { email: 'satyaki.das@rishihood.edu.in' } };
     h.rpc.mockResolvedValue({ rounds: [], sections: [], release: null });
     render(<Home />);
     const link = await screen.findByRole('link', {
@@ -88,7 +88,7 @@ describe('Home sign-in and role routing', () => {
   });
 
   it('signs out back to the sign-in state', async () => {
-    h.session.value = { user: { email: 'student@newtonschool.co' } };
+    h.session.value = { user: { email: 'student@rishihood.edu.in' } };
     h.rpc.mockRejectedValue(new Error('host_only'));
     render(<Home />);
     fireEvent.click(await screen.findByRole('button', { name: /sign out/i }));

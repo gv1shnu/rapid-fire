@@ -1,8 +1,20 @@
 #!/bin/sh
-# Block a push when the project does not fully validate.
-# Install once with:  npm run hooks:install  (or any `npm install` runs it).
-set -e
-
-echo "› pre-push: validating The Lost Schema before pushing…"
+# Local assistance; the protected remote branch must require CI's verify check.
+set -eu
+root=$(git rev-parse --show-toplevel)
+if test -n "$(git status --porcelain)"; then
+  echo 'Commit or stash changes first so verification matches the pushed revision.' >&2
+  exit 1
+fi
+head=$(git rev-parse HEAD)
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+  if test "$local_sha" != "$head"; then
+    echo 'Check out each revision being pushed and verify it before pushing.' >&2
+    exit 1
+  fi
+done
+cd "$root"
 npm run verify
-echo "✓ pre-push: all checks passed."

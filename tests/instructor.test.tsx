@@ -159,3 +159,22 @@ describe('Instructor preview persistence', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('Instructor configuration continuity', () => {
+  it('retains count and seconds when preparing the next round', async () => {
+    render(<Instructor />);
+    setCount('20');
+    setSeconds('15');
+    fireEvent.click(reviewButton());
+    fireEvent.click(screen.getByRole('button', { name: /approve & release/i }));
+    await screen.findByText(/the rapid fire is underway/i);
+    fireEvent.click(screen.getByRole('button', { name: /^end rapid fire$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /end for everyone/i }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: /configure next round/i }),
+    );
+    expect(screen.getByLabelText(/questions per round/i)).toHaveValue(20);
+    expect(screen.getByLabelText(/seconds per question/i)).toHaveValue(15);
+    expect(screen.getByText('5 min')).toBeVisible();
+  });
+});

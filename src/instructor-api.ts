@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import catalogue from './question-catalogue.json';
+import { assertPublicKey } from './public-config';
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+assertPublicKey(key);
 export const supabase = url && key ? createClient(url, key) : null;
 
 export type RoundPool = {
@@ -19,6 +22,7 @@ export type Release = {
   closes_at: string | null;
   ended_at: string | null;
   submitted_students?: number;
+  admission_closes_at?: string | null;
 };
 export type InstructorState = {
   rounds: RoundPool[];
@@ -39,20 +43,20 @@ export async function instructorRpc<T>(
   args: Record<string, unknown> = {},
 ): Promise<T> {
   if (!supabase) throw new Error('A Supabase connection is required.');
-  const { data, error } = await supabase.rpc(name, args);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 15000);
+  let result;
+  try {
+    result = await supabase.rpc(name, args).abortSignal(controller.signal);
+  } finally {
+    window.clearTimeout(timer);
+  }
+  const { data, error } = result;
   if (error) throw new Error(error.message);
+  if (data && typeof data === 'object' && typeof data.error === 'string')
+    throw new Error(data.error);
   return data as T;
 }
 
 // Public preview counts only; never import the question seed or its answer keys.
-export const previewPools: RoundPool[] = [
-  { id: 1, title: 'The Vault of Keys', available_questions: 45 },
-  { id: 2, title: 'Guild City', available_questions: 45 },
-  { id: 3, title: 'The Cipher Lock', available_questions: 0 },
-  { id: 4, title: 'The Alchemist’s Workshop', available_questions: 0 },
-  { id: 5, title: 'The Card Table', available_questions: 0 },
-  { id: 6, title: 'Orbit Grand Prix', available_questions: 0 },
-  { id: 7, title: 'The Nesting Temple', available_questions: 0 },
-  { id: 8, title: 'Noir Bureau', available_questions: 0 },
-  { id: 9, title: 'The Cartographer’s Finale', available_questions: 0 },
-];
+export const previewPools: RoundPool[] = catalogue;

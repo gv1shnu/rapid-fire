@@ -78,28 +78,30 @@ export function Instructor() {
     count >= 1 &&
     count <= Math.min(300, selectedPool?.available_questions ?? 0) &&
     Number.isInteger(allotted) &&
-    allotted >= 10 &&
+    allotted >= 1 &&
     allotted <= 120 &&
     duration < 10800 &&
     (isPreview || section !== '' || Boolean(sessionId));
-  const deadline = Date.parse(release?.closes_at ?? '');
+  const deadline = Date.parse(
+    release?.admission_closes_at ?? release?.closes_at ?? '',
+  );
   const left = Number.isFinite(deadline)
     ? Math.max(0, Math.ceil((deadline - now) / 1000))
     : 0;
   const ended =
     release?.status === 'ended' ||
-    (now > 0 && release?.status === 'live' && left === 0);
+    (isPreview && now > 0 && release?.status === 'live' && left === 0);
   const released = Boolean(
     release && release.status !== 'draft' && !preparingNext,
   );
 
   useEffect(() => {
     const timer = window.setInterval(
-      () => setNow(Date.now() + serverOffset),
+      () => setNow(isPreview ? Date.now() : performance.now() + serverOffset),
       100,
     );
     return () => window.clearInterval(timer);
-  }, [serverOffset]);
+  }, [serverOffset, isPreview]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -119,7 +121,7 @@ export function Instructor() {
         });
         if (!active) return;
         setConnected(state);
-        setServerOffset(Date.parse(state.server_now) - Date.now());
+        setServerOffset(Date.parse(state.server_now) - performance.now());
         setError('');
       } catch (err) {
         if (active)
@@ -196,7 +198,7 @@ export function Instructor() {
           p_session: id,
         });
         setConnected(state);
-        setServerOffset(Date.parse(state.server_now) - Date.now());
+        setServerOffset(Date.parse(state.server_now) - performance.now());
       }
       setReview(false);
       setPreparingNext(false);
@@ -229,12 +231,12 @@ export function Instructor() {
     setQuestionCount(
       String(
         Math.min(
-          30,
+          release.question_count,
           pools.find((pool) => pool.id === nextId)?.available_questions ?? 0,
         ),
       ),
     );
-    setSeconds('12');
+    setSeconds(String(release.seconds_per_question));
     setReview(false);
     setConfirmEnd(false);
     setPreparingNext(true);
@@ -338,7 +340,7 @@ export function Instructor() {
                 <p>
                   {ended
                     ? 'No new answers or repeat attempts are accepted.'
-                    : 'Every student shares the same deadline. One attempt per student.'}
+                    : 'Each question has its own timer. One attempt per student.'}
                 </p>
                 <div
                   className="release-clock"
@@ -351,8 +353,8 @@ export function Instructor() {
                 </div>
                 <p className="clock-caption">
                   {ended
-                    ? 'Answers are sealed. Results are preserved.'
-                    : 'TIME REMAINING FOR ALL STUDENTS'}
+                    ? 'Answers are available in the debrief. Results are preserved.'
+                    : 'JOINING WINDOW · STARTED ATTEMPTS KEEP THEIR QUESTION TIMERS'}
                 </p>
                 <dl className="release-settings">
                   <div>
@@ -364,7 +366,7 @@ export function Instructor() {
                     <dd>{release!.seconds_per_question}</dd>
                   </div>
                   <div>
-                    <dt>Total duration</dt>
+                    <dt>Nominal answering duration</dt>
                     <dd>{durationLabel(release!.duration_seconds)}</dd>
                   </div>
                 </dl>
@@ -493,7 +495,7 @@ export function Instructor() {
                       aria-describedby="count-help"
                     />
                     <p id="count-help">
-                      Each of the 9 rounds releases this many · out of{' '}
+                      This round releases this many · out of{' '}
                       {selectedPool?.available_questions ?? 0} available this
                       round
                     </p>
@@ -505,7 +507,7 @@ export function Instructor() {
                     <input
                       id="question-seconds"
                       type="number"
-                      min="10"
+                      min="1"
                       max="120"
                       step="1"
                       value={seconds}
@@ -513,17 +515,17 @@ export function Instructor() {
                       onChange={(event) => setSeconds(event.target.value)}
                       aria-describedby="seconds-help"
                     />
-                    <p id="seconds-help">Between 10 and 120 seconds</p>
+                    <p id="seconds-help">Between 1 and 120 seconds</p>
                   </div>
                 </div>
                 <div className="duration-calculation" aria-live="polite">
                   <div>
-                    <span>TOTAL RAPID-FIRE DURATION</span>
+                    <span>NOMINAL ANSWERING DURATION</span>
                     <strong>{valid ? durationLabel(duration) : '—'}</strong>
                   </div>
                   <p>
                     {valid
-                      ? `${count} questions × ${allotted} seconds`
+                      ? `${count === 1 ? '1 question' : `${count} questions`} × ${allotted} seconds`
                       : 'Enter valid settings to calculate the duration.'}
                   </p>
                 </div>
@@ -531,9 +533,11 @@ export function Instructor() {
                   <div className="approval-panel">
                     <h3>Ready to release?</h3>
                     <p>
-                      {count} questions · {allotted} seconds each ·{' '}
-                      {durationLabel(duration)} total. The shared timer starts
-                      immediately on approval.
+                      {count === 1 ? '1 question' : `${count} questions`} ·{' '}
+                      {allotted} seconds each · {durationLabel(duration)} of
+                      answering time. The joining window opens on approval. Each
+                      question starts its own timer when served; the instructor
+                      can end the release early.
                     </p>
                     <div className="approval-actions">
                       <button
@@ -588,8 +592,9 @@ export function Instructor() {
               <li>
                 <strong>Automatic finish</strong>
                 <p>
-                  When time runs out, answers close for everyone. You can also
-                  end the rapid fire early.
+                  Each question expires separately. The release finishes after
+                  admission closes and started attempts complete. You can also
+                  end it early.
                 </p>
               </li>
             </ol>
@@ -601,7 +606,10 @@ export function Instructor() {
       )}
       <footer>
         <span>Built for the DBMS lab.</span>
-        <span>Scores and answers stay hidden during rapid fire.</span>
+        <span>
+          Standings appear once a student submits; answers stay hidden until the
+          whole rapid fire ends.
+        </span>
       </footer>
     </main>
   );
