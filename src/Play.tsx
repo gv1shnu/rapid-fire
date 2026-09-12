@@ -1,272 +1,384 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { instructorRpc, supabase } from './instructor-api';
+import {
+  parseLeaderboard,
+  parsePayload,
+  parseResult,
+  parseState,
+  studentRpc,
+  type Body,
+  type LeaderboardRow,
+  type Question,
+  type Result,
+  type StudentState,
+} from './student-api';
 
-// Student play. Joins a session by its code (from the shared link), then runs
-// each live round: serve a question, take one answer or time out, advance, and
-// wait for the instructor to release the next round. No scores mid-round.
-type SessionState = {
-  session_id: string;
-  status: string;
-  current_round: number | null;
-  closes_at: string;
+function Content({ body }: { body: Body }) {
+  return (
+    <>
+      {body.text && <span>{body.text}</span>}
+      {body.code_html && (
+        <pre>
+          <code>{body.code_html}</code>
+        </pre>
+      )}
+      {body.table_json && (
+        <table>
+          <thead>
+            <tr>
+              {body.table_json.cols.map((c, i) => (
+                <th key={i}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {body.table_json.rows.map((r, i) => (
+              <tr key={i}>
+                {r.map((c, j) => (
+                  <td key={j}>{c === null ? 'NULL' : String(c)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+type View = {
+  owner: string;
+  session: StudentState | null;
+  question: Question | null;
+  result: Result | null;
+  leaderboard: LeaderboardRow[] | null;
+  pending: string | null | undefined;
+  error: string;
+  deadline: number;
 };
-type Option = { id: number; body: { text?: string } };
-type Question = {
-  seq: number;
-  round_id?: number;
-  stem: string;
-  options: Option[];
-  served_at: string;
-  deadline: string;
-  question_count: number;
+const empty: View = {
+  owner: '',
+  session: null,
+  question: null,
+  result: null,
+  leaderboard: null,
+  pending: undefined,
+  error: '',
+  deadline: 0,
 };
-type Payload = Question | { round_complete: true };
-type DebriefItem = {
-  seq: number;
-  chosen_option: number | null;
-  correct_option: number;
-  explanation: string;
-  points: number;
-};
-type Debrief = {
-  round: number;
-  items: DebriefItem[];
-  total_points: number;
-  best_streak: number;
-  cumulative_points: number;
-  leaderboard_position: number;
-};
-
-const LAST_ROUND = 9;
-const avatarSeed = () => Math.random().toString(36).slice(2, 10);
 
 export function Play({ code }: { code: string }) {
-  const isReady = Boolean(supabase);
-  const [authed, setAuthed] = useState(false);
+  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [checked, setChecked] = useState(false);
-  const [session, setSession] = useState<SessionState | null>(null);
-  const [question, setQuestion] = useState<Question | null>(null);
-  const [doneRound, setDoneRound] = useState<number | null>(null);
-  const [served, setServed] = useState<Record<number, Question>>({});
-  const [debrief, setDebrief] = useState<Debrief | null>(null);
-  const [selected, setSelected] = useState<number | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [error, setError] = useState('');
-  const busy = useRef(false);
-
+  const [view, setView] = useState<View>(empty);
+  const [now, setNow] = useState(() => performance.now());
+  const command = useRef<(option: string | null) => void>(() => {});
+  const retry = useRef<() => void>(() => {});
+  const review = useRef<(round: number) => void>(() => {});
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setAuthed(Boolean(data.session));
-      setChecked(true);
+    let active = true;
+    let authEvent = false;
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (active && !authEvent) {
+          setUser(data.session?.user ?? null);
+          setChecked(true);
+        }
+      })
+      .catch(() => {
+        if (active) setChecked(true);
+      });
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      authEvent = true;
+      if (active) {
+        setUser(session?.user ?? null);
+        setChecked(true);
+      }
     });
-    const { data } = supabase.auth.onAuthStateChange((_e, s) =>
-      setAuthed(Boolean(s)),
-    );
-    return () => data.subscription.unsubscribe();
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
-  async function signIn() {
-    await supabase!.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        scopes: 'openid email profile',
-        redirectTo: window.location.href,
-      },
-    });
-  }
-
-  // Join, then poll the session so we learn when a round goes live or advances.
   useEffect(() => {
-    if (!isReady || !authed) return;
+    if (!user || !supabase) return;
     let active = true;
+    let inFlight = false;
+    let sessionId: string | null = null;
+    let nextPoll = 0;
+    let retryAt = 0;
+    let failures = 0;
+    const state: View = { ...empty, owner: `${user.id}:${code}` };
+    let wantedResult: number | null = null;
+    const publish = () => {
+      if (active) setView({ ...state });
+    };
+    const apply = (payload: ReturnType<typeof parsePayload>) => {
+      state.pending = undefined;
+      if ('round_complete' in payload) {
+        state.question = null;
+        if (state.session)
+          state.session = { ...state.session, submitted: true };
+        nextPoll = 0;
+      } else {
+        if (
+          payload.session_id !== sessionId ||
+          payload.round_id !== state.session?.current_round
+        )
+          throw new Error('Stale question response. Reconnecting.');
+        state.question = payload;
+        // Anchor to server time and a monotonic clock; changing the device clock cannot reset it.
+        state.deadline =
+          performance.now() +
+          Math.max(
+            0,
+            Date.parse(payload.deadline) - Date.parse(payload.server_now),
+          );
+        state.result = null;
+      }
+    };
     async function tick() {
-      const email =
-        (await supabase!.auth.getUser()).data.user?.email ?? 'Explorer';
-      const nickname = email.split('@')[0].slice(0, 30) || 'Explorer';
+      if (!active || inFlight || performance.now() < retryAt) return;
+      inFlight = true;
       try {
-        const state = await instructorRpc<SessionState>('join_session', {
-          code,
-          nickname,
-          avatar_seed: avatarSeed(),
-        });
-        if (active) {
-          setSession(state);
-          setError('');
+        if (!sessionId) {
+          const joined = await instructorRpc<{ session_id: string }>(
+            'join_session',
+            {
+              code,
+              nickname: (user!.email?.split('@')[0] || 'Explorer').slice(0, 30),
+              avatar_seed: user!.id,
+            },
+          );
+          if (!active) return;
+          if (typeof joined?.session_id !== 'string')
+            throw new Error('Invalid join response.');
+          sessionId = joined.session_id;
         }
+        if (performance.now() >= nextPoll) {
+          const session = await studentRpc(
+            'student_state',
+            { p_session: sessionId },
+            parseState,
+          );
+          if (!active) return;
+          if (session.session_id !== sessionId)
+            throw new Error('Invalid session response.');
+          const changed =
+            state.session?.current_round !== session.current_round;
+          if (
+            changed ||
+            session.status === 'closed' ||
+            session.release_status !== 'live' ||
+            session.submitted
+          ) {
+            state.question = null;
+            state.pending = undefined;
+          }
+          if (changed || session.status === 'closed') state.result = null;
+          state.session = session;
+          nextPoll = performance.now() + 2500;
+          // Standings unlock the moment this student has submitted, and stay
+          // live afterwards; re-fetching each poll keeps them current as other
+          // students finish. Solutions remain sealed until the session closes.
+          if (session.submitted || session.status === 'closed') {
+            const board = await studentRpc(
+              'session_leaderboard',
+              { p_session: sessionId },
+              parseLeaderboard,
+            );
+            if (!active) return;
+            state.leaderboard = board;
+          } else if (state.leaderboard) {
+            state.leaderboard = null;
+          }
+          if (
+            session.release_status === 'ended' &&
+            session.current_round &&
+            session.results.includes(session.current_round) &&
+            state.result?.round_id !== session.current_round
+          )
+            wantedResult = session.current_round;
+          publish();
+        }
+        if (
+          state.question &&
+          state.pending === undefined &&
+          performance.now() >= state.deadline
+        )
+          state.pending = null;
+        if (state.question && state.pending !== undefined) {
+          const q = state.question;
+          const payload = await studentRpc(
+            'submit_answer',
+            {
+              p_session: sessionId,
+              p_round: q.round_id,
+              seq: q.seq,
+              option_id: state.pending,
+            },
+            parsePayload,
+          );
+          if (!active) return;
+          apply(payload);
+        } else if (
+          !state.question &&
+          state.session?.status === 'live' &&
+          state.session.release_status === 'live' &&
+          state.session.can_start &&
+          !state.session.submitted
+        ) {
+          const payload = await studentRpc(
+            'start_round',
+            { p_session: sessionId, p_round: state.session.current_round },
+            parsePayload,
+          );
+          if (!active) return;
+          apply(payload);
+        } else if (wantedResult !== null && !state.question) {
+          const result = await studentRpc(
+            'my_result',
+            { p_session: sessionId, p_round: wantedResult },
+            parseResult,
+          );
+          if (!active) return;
+          state.result = result;
+          wantedResult = null;
+        }
+        state.error = '';
+        failures = 0;
+        publish();
       } catch (err) {
-        if (active)
-          setError(err instanceof Error ? err.message : 'Could not join.');
+        if (!active) return;
+        const message =
+          err instanceof Error ? err.message : 'Connection interrupted.';
+        if (
+          /session_closed|round_ended|round_not_current|admission_closed|not_session_member|domain_not_allowed/.test(
+            message,
+          )
+        ) {
+          state.question = null;
+          state.result = null;
+          state.pending = undefined;
+          nextPoll = 0;
+        }
+        state.error = `${message} Your attempt is saved; reconnecting…`;
+        retryAt =
+          performance.now() +
+          Math.min(30000, 2000 * 2 ** Math.min(failures++, 4));
+        publish();
+      } finally {
+        inFlight = false;
       }
     }
+    command.current = (option) => {
+      if (
+        !state.question ||
+        state.pending !== undefined ||
+        performance.now() >= state.deadline
+      )
+        return;
+      state.pending = option;
+      publish();
+      void tick();
+    };
+    retry.current = () => {
+      retryAt = 0;
+      void tick();
+    };
+    review.current = (round) => {
+      wantedResult = round;
+      void tick();
+    };
+    const timer = window.setInterval(() => {
+      setNow(performance.now());
+      void tick();
+    }, 200);
     void tick();
-    const timer = window.setInterval(() => void tick(), 2500);
     return () => {
       active = false;
       window.clearInterval(timer);
+      command.current = () => {};
+      retry.current = () => {};
+      review.current = () => {};
     };
-  }, [isReady, authed, code]);
+  }, [user, code]);
 
-  useEffect(() => {
-    const t = window.setInterval(() => setNow(Date.now()), 200);
-    return () => window.clearInterval(t);
-  }, []);
-
-  const apply = useCallback((payload: Payload, round: number) => {
-    if ('round_complete' in payload) {
-      setQuestion(null);
-      setDoneRound(round);
-    } else {
-      setQuestion(payload);
-      setSelected(null);
-      setDoneRound(null);
-      setDebrief(null);
-      const q = payload;
-      setServed((prev) => (q.seq === 1 ? { 1: q } : { ...prev, [q.seq]: q }));
-    }
-  }, []);
-
-  // When a round finishes, fetch its debrief (questions, correct answers, explanations).
-  useEffect(() => {
-    if (doneRound == null || !session) return;
-    if (debrief?.round === doneRound || busy.current) return;
-    busy.current = true;
-    void instructorRpc<{
-      questions: DebriefItem[];
-      total_points: number;
-      best_streak: number;
-      cumulative_points: number;
-      leaderboard_position: number;
-    }>('submit_round', {
-      p_session: session.session_id,
-      p_round: doneRound,
-    })
-      .then((r) =>
-        setDebrief({
-          round: doneRound,
-          items: r.questions,
-          total_points: r.total_points,
-          best_streak: r.best_streak,
-          cumulative_points: r.cumulative_points,
-          leaderboard_position: r.leaderboard_position,
-        }),
-      )
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : 'Could not load debrief.',
-        ),
-      )
-      .finally(() => {
-        busy.current = false;
+  async function signIn() {
+    const redirect = new URL('/', window.location.origin);
+    redirect.searchParams.set('j', code);
+    try {
+      const result = await supabase!.auth.signInWithOAuth({
+        provider: 'google',
+        options: { scopes: 'openid email profile', redirectTo: redirect.href },
       });
-  }, [doneRound, session, debrief]);
-
-  // Start the current round when it is live and we are not already in it.
-  useEffect(() => {
-    if (!session || question) return;
-    const round = session.current_round;
-    if (session.status !== 'live' || round == null) return;
-    if (doneRound === round) return;
-    if (busy.current) return;
-    busy.current = true;
-    void instructorRpc<Payload>('start_round', {
-      p_session: session.session_id,
-      p_round: round,
-    })
-      .then((payload) => apply(payload, round))
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : 'Could not start.'),
-      )
-      .finally(() => {
-        busy.current = false;
+      if (result.error) throw result.error;
+    } catch (err) {
+      setView({
+        ...empty,
+        error: err instanceof Error ? err.message : 'Sign-in failed.',
       });
-  }, [session, question, doneRound, apply]);
-
-  const answer = useCallback(
-    async (optionId: number | null) => {
-      if (!session || !question || busy.current) return;
-      busy.current = true;
-      try {
-        const payload = await instructorRpc<Payload>('submit_answer', {
-          p_session: session.session_id,
-          p_round: question.round_id ?? session.current_round,
-          seq: question.seq,
-          option_id: optionId,
-        });
-        apply(payload, question.round_id ?? session.current_round!);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not submit.');
-      } finally {
-        busy.current = false;
-      }
-    },
-    [session, question, apply],
-  );
-
-  // Auto-timeout when the per-question deadline passes with no answer.
-  const deadline = question ? Date.parse(question.deadline) : 0;
-  useEffect(() => {
-    if (question && selected === null && now >= deadline && !busy.current) {
-      void answer(null);
     }
-  }, [question, selected, now, deadline, answer]);
-
-  function choose(optionId: number, index: number) {
-    if (selected !== null || busy.current) return;
-    setSelected(index);
-    void answer(optionId);
   }
-
-  if (!isReady) {
+  if (!supabase)
     return (
       <main className="question-preview">
         <p role="status">This lab is not configured to run here.</p>
       </main>
     );
-  }
-  if (checked && !authed) {
+  if (!user)
     return (
       <main className="instructor-page">
         <section className="setup-panel">
-          <h2>Join the rapid fire</h2>
-          <p>Sign in with your college Google account to join.</p>
-          <button className="start-timer" onClick={() => void signIn()}>
-            Sign in with Google
-          </button>
+          <h1>Join the rapid fire</h1>
+          <p>
+            {checked
+              ? 'Sign in with your college Google account to join.'
+              : 'Checking sign-in…'}
+          </p>
+          {view.error && <p role="alert">{view.error}</p>}
+          {checked && (
+            <button className="start-timer" onClick={() => void signIn()}>
+              Sign in with Google
+            </button>
+          )}
+          <p>
+            <a href="/privacy.html">Privacy policy</a> ·{' '}
+            <a href="/terms.html">Terms of service</a>
+          </p>
         </section>
       </main>
     );
-  }
-
-  const remaining = Math.max(0, Math.ceil((deadline - now) / 1000));
-  const secondsTotal =
-    question && Number.isFinite(deadline)
-      ? Math.max(
-          1,
-          Math.round((deadline - Date.parse(question.served_at)) / 1000),
-        )
-      : 1;
-
+  const activeView = view.owner === `${user.id}:${code}` ? view : empty;
+  const { question: q, result, session, pending, error } = activeView;
+  const remaining = Math.max(0, Math.ceil((activeView.deadline - now) / 1000));
+  const playerName = (user.email?.split('@')[0] || 'Explorer').slice(0, 30);
   return (
     <main className="question-preview">
       <header>
         <a className="brand" href="/">
           THE LOST SCHEMA
         </a>
-        <span className="badge">RAPID FIRE · LIVE</span>
+        <span className="badge">RAPID FIRE</span>
+        <span className="player-name" title={user.email}>
+          {playerName}
+        </span>
       </header>
       <section className="question-stage">
         {error && (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
+          <div role="alert">
+            <p>{error}</p>
+            <button onClick={() => retry.current()}>Reconnect now</button>
+          </div>
         )}
-        {question ? (
+        {q ? (
           <div className="question-card">
             <div className="question-topline">
               <span className="eyebrow">
-                QUESTION {question.seq.toString().padStart(2, '0')}{' '}
-                <span className="muted">/ {question.question_count}</span>
+                QUESTION {String(q.seq).padStart(2, '0')}{' '}
+                <span className="muted">/ {q.question_count}</span>
               </span>
               <div
                 className="timer"
@@ -282,7 +394,10 @@ export function Play({ code }: { code: string }) {
                     r="35"
                     pathLength="100"
                     strokeDasharray="100"
-                    strokeDashoffset={100 - (remaining / secondsTotal) * 100}
+                    strokeDashoffset={
+                      100 -
+                      Math.min(1, remaining / q.seconds_per_question) * 100
+                    }
                   />
                 </svg>
                 <span>
@@ -291,135 +406,155 @@ export function Play({ code }: { code: string }) {
                 </span>
               </div>
             </div>
-            <h1>{question.stem}</h1>
-            <p className="question-instruction">
-              Choose one answer. Keep exploring.
-            </p>
+            <h1>{q.stem}</h1>
+            <Content body={q.body} />
+            <p className="question-instruction">Choose one answer.</p>
             <div className="answer-options" aria-label="Answer choices">
-              {question.options.map((option, index) => (
+              {q.options.map((o, i) => (
                 <button
-                  key={option.id}
-                  className={`answer-option${selected === index ? ' selected' : ''}`}
-                  disabled={selected !== null}
-                  aria-pressed={selected === index}
-                  onClick={() => choose(option.id, index)}
+                  key={o.id}
+                  className={`answer-option${pending === o.id ? ' selected' : ''}`}
+                  disabled={pending !== undefined || remaining === 0}
+                  aria-pressed={pending === o.id}
+                  onClick={() => command.current(o.id)}
                 >
                   <span className="option-letter">
-                    {String.fromCharCode(65 + index)}
+                    {String.fromCharCode(65 + i)}
                   </span>
-                  <span>{option.body.text}</span>
+                  <Content body={o.body} />
                 </button>
               ))}
             </div>
             <p role="status" className="question-instruction">
-              {selected !== null
-                ? 'Answer recorded. Next question loading…'
-                : 'Your choice stays sealed until the debrief.'}
+              {pending !== undefined
+                ? 'Submitting… Your choice will be confirmed by the server.'
+                : 'Your choice stays sealed until the release ends.'}
             </p>
           </div>
-        ) : debrief ? (
+        ) : result ? (
           <div className="debrief">
             <div className="round-label">
-              <span>Round {debrief.round.toString().padStart(2, '0')}</span>
+              <span>Round {String(result.round_id).padStart(2, '0')}</span>
               <span>Debrief · answers revealed</span>
             </div>
             <div className="debrief-score">
               <div>
                 <span>Round points</span>
-                <strong>{debrief.total_points}</strong>
+                <strong>{result.total_points}</strong>
               </div>
               <div>
                 <span>Best streak</span>
-                <strong>{debrief.best_streak}</strong>
+                <strong>{result.best_streak}</strong>
               </div>
               <div>
-                <span>Total so far</span>
-                <strong>{debrief.cumulative_points}</strong>
-              </div>
-              <div>
-                <span>Position</span>
-                <strong>#{debrief.leaderboard_position}</strong>
+                <span>Total at submission</span>
+                <strong>{result.cumulative_points}</strong>
               </div>
             </div>
-            {debrief.items.map((item) => {
-              const q = served[item.seq];
-              return (
-                <div className="debrief-q" key={item.seq}>
-                  <p className="debrief-stem">
-                    <span className="muted">Q{item.seq}.</span>{' '}
-                    {q?.stem ?? 'Question'}
-                  </p>
-                  <div className="debrief-options">
-                    {q?.options.map((o, i) => {
-                      const correct = o.id === item.correct_option;
-                      const chosen = o.id === item.chosen_option;
-                      return (
-                        <div
-                          key={o.id}
-                          className={`debrief-option${correct ? ' correct' : ''}${
-                            chosen && !correct ? ' wrong' : ''
-                          }`}
-                        >
-                          <span className="option-letter">
-                            {String.fromCharCode(65 + i)}
-                          </span>
-                          <span>{o.body.text}</span>
-                          {correct && (
-                            <span className="tag correct-tag">Correct</span>
-                          )}
-                          {chosen && !correct && (
-                            <span className="tag wrong-tag">Your pick</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {item.explanation && (
-                    <p className="debrief-explain">{item.explanation}</p>
-                  )}
+            {result.questions.map((item) => (
+              <div className="debrief-q" key={item.seq}>
+                <p className="debrief-stem">
+                  Q{item.seq}. {item.stem}
+                </p>
+                <Content body={item.body} />
+                <div className="debrief-options">
+                  {item.options.map((o, i) => (
+                    <div
+                      key={o.id}
+                      className={`debrief-option${o.id === item.correct_option ? ' correct' : o.id === item.chosen_option ? ' wrong' : ''}`}
+                    >
+                      <span className="option-letter">
+                        {String.fromCharCode(65 + i)}
+                      </span>
+                      <Content body={o.body} />
+                      {o.id === item.correct_option && (
+                        <span className="tag correct-tag">Correct</span>
+                      )}
+                      {o.id === item.chosen_option && (
+                        <span className="tag">Your pick</span>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
-            {debrief.round < LAST_ROUND && (
-              <p className="question-instruction">
-                Round complete. The next round begins when your instructor
-                releases it.
-              </p>
-            )}
-            <a
-              className="practice-cta"
-              href="https://github.com/gv1shnu/treasure-hunt"
-            >
-              More coding practice on the basics → Dilli Khoj ↗
-            </a>
-          </div>
-        ) : doneRound != null ? (
-          <div className="question-card">
-            <h1>Scoring round {doneRound.toString().padStart(2, '0')}…</h1>
-            <p className="question-instruction">Revealing your answers…</p>
+                <p className="debrief-explain">{item.explanation}</p>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="question-card">
-            <h1>You’re in.</h1>
-            <p className="question-instruction">
-              {session
-                ? 'Waiting for the round to begin…'
-                : 'Joining the rapid fire…'}
+            <h1>
+              {session?.status === 'closed'
+                ? 'This session has ended.'
+                : session?.submitted
+                  ? 'Submission received.'
+                  : session?.release_status === 'ended'
+                    ? 'This round has ended.'
+                    : session?.can_start === false &&
+                        session?.release_status === 'live'
+                      ? 'The joining window has closed.'
+                      : session
+                        ? 'You’re in.'
+                        : 'Joining the rapid fire…'}
+            </h1>
+            <p role="status">
+              {session?.status === 'closed'
+                ? 'The rapid fire is over. Correct answers are revealed below.'
+                : session?.submitted
+                  ? 'Your standings are live below. Correct answers reveal once the whole rapid fire ends.'
+                  : 'Your instructor controls when the next round begins.'}
             </p>
           </div>
         )}
+        {!q && session && session.results.length > 0 && (
+          <nav aria-label="Completed rounds">
+            {session.results.map((r) => (
+              <button key={r} onClick={() => review.current(r)}>
+                Review round {r}
+              </button>
+            ))}
+          </nav>
+        )}
+        {!q &&
+          (session?.submitted || session?.status === 'closed') &&
+          activeView.leaderboard && (
+            <section className="leaderboard" aria-label="Leaderboard">
+              <div className="round-label">
+                <span>Leaderboard</span>
+                <span>
+                  {session?.status === 'closed'
+                    ? 'Rapid fire complete'
+                    : 'Live standings'}
+                </span>
+              </div>
+              {activeView.leaderboard.length === 0 ? (
+                <p role="status">No scores were recorded this session.</p>
+              ) : (
+                <ol>
+                  {activeView.leaderboard.map((row, i) => (
+                    <li
+                      key={i}
+                      className={row.is_me ? 'me' : undefined}
+                      aria-current={row.is_me ? 'true' : undefined}
+                    >
+                      <span className="rank">{row.rank}</span>
+                      <span className="who">
+                        {row.name}
+                        {row.is_me && <span className="you-tag">You</span>}
+                      </span>
+                      <span className="pts">{row.points}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
       </section>
       <footer>
-        {debrief ? (
-          <a className="credit" href="https://vishnugandarapu.in">
-            Built by Vishnu Gandarapu ↗
-          </a>
-        ) : (
-          <>
-            <span>One answer. One step forward.</span>
-            <span>No hints. No scores until the debrief.</span>
-          </>
-        )}
+        <span>One attempt per student, per round.</span>
+        <span>
+          <a href="/privacy.html">Privacy policy</a> ·{' '}
+          <a href="/terms.html">Terms of service</a>
+        </span>
       </footer>
     </main>
   );

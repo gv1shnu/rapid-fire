@@ -41,6 +41,21 @@ header {
   font-size: 10px;
   color: #b7c0b8;
 }
+.player-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #43514a;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e6bc70;
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 section {
   align-self: center;
 }
@@ -930,4 +945,66 @@ aside.release-summary {
   .debrief-score {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+.leaderboard {
+  margin-top: 28px;
+  padding: 24px 28px;
+  border: 1px solid #3a4b3e;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #202e25, #17241f);
+}
+.leaderboard ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.leaderboard li {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid #2a3a37;
+  border-radius: 12px;
+  background: #16221f;
+  color: #eeeadd;
+}
+.leaderboard li.me {
+  border-color: #e5bc75;
+  background: #22301f;
+}
+.leaderboard .rank {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: #e5bc75;
+  text-align: center;
+}
+.leaderboard .who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.leaderboard .you-tag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e5bc75;
+  color: #17241f;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.leaderboard .pts {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: #e5bc75;
 }

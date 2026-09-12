@@ -1,0 +1,47 @@
+[
+  {
+    "id": 1,
+    "title": "The Vault of Keys",
+    "available_questions": 45
+  },
+  {
+    "id": 2,
+    "title": "Guild City",
+    "available_questions": 44
+  },
+  {
+    "id": 3,
+    "title": "The Cipher Lock",
+    "available_questions": 11
+  },
+  {
+    "id": 4,
+    "title": "The Alchemist’s Workshop",
+    "available_questions": 18
+  },
+  {
+    "id": 5,
+    "title": "The Card Table",
+    "available_questions": 11
+  },
+  {
+    "id": 6,
+    "title": "Orbit Grand Prix",
+    "available_questions": 11
+  },
+  {
+    "id": 7,
+    "title": "The Nesting Temple",
+    "available_questions": 9
+  },
+  {
+    "id": 8,
+    "title": "Noir Bureau",
+    "available_questions": 16
+  },
+  {
+    "id": 9,
+    "title": "The Cartographer’s Finale",
+    "available_questions": 9
+  }
+]

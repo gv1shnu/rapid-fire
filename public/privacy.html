@@ -126,9 +126,9 @@
       <div class="card">
         <strong>Who can use it.</strong> Access is limited to members of the
         college whose Google Workspace accounts belong to the
-        <code>example.edu</code>, <code>students.example.edu</code> or
-        <code>partner.example</code> domains. Accounts from any other domain,
-        and non-Google logins, are rejected at sign-in.
+        <code>example.edu</code> and
+        <code>students.example.edu</code> domains. Accounts from any other
+        domain, and non-Google logins, are rejected at sign-in.
       </div>
 
       <h2>Information we collect</h2>
@@ -142,16 +142,17 @@
           other Google service.
         </li>
         <li>
-          <strong>Class roster details.</strong> Your instructor provisions a
-          roster of participating email addresses and their assigned lab
-          section. Your email is matched against that roster to place you in the
-          correct section.
+          <strong>Session membership.</strong> Joining an instructor’s code
+          records your membership in that session. The section is selected by
+          the instructor; joining another section does not remove earlier
+          memberships.
         </li>
         <li>
-          <strong>Gameplay data you create.</strong> A display nickname and
-          avatar seed you choose, the answer you select for each question, and
-          server-measured timing, per-question and per-round scores, streaks and
-          accuracy metrics for each round you play.
+          <strong>Gameplay data you create.</strong> A display nickname derived
+          from your email and an account-based avatar identifier, the answer you
+          select for each question, and server-measured timing, per-question and
+          per-round scores, streaks and accuracy metrics for each round you
+          play.
         </li>
       </ul>
 
@@ -162,8 +163,8 @@
         </li>
         <li>To place you in your instructor-assigned lab section.</li>
         <li>
-          To run the game fairly — one attempt per student, a shared countdown,
-          and scoring revealed only at the debrief.
+          To run the game fairly — one attempt per student, server-enforced
+          per-question timers, and scoring revealed only at the debrief.
         </li>
         <li>
           To give your instructor class-level and per-student performance
@@ -199,17 +200,19 @@
         Data is stored in the application's Supabase (PostgreSQL) project.
         Row-level security is enabled on every table and the browser has no
         direct read or write access; all access goes through a small set of
-        audited server functions. Sign-in is handled by Supabase Auth using
+        restricted server functions. Sign-in is handled by Supabase Auth using
         Google as the sole identity provider.
       </p>
 
       <h2>Retention and deletion</h2>
       <p>
-        Session and score records are kept only as long as needed for the course
-        — typically the current term — and may be removed after grades are
-        finalised. To ask what is held about you, or to request correction or
-        deletion, contact the DBMS teaching team that runs your lab (see below).
-        Removing your account from the roster prevents further sign-in.
+        The teaching team retains session and score records for course review.
+        Deletion is administered by the teaching team; the application does not
+        currently perform automatic retention-based deletion. To ask what is
+        held about you, or to request correction or deletion, contact the DBMS
+        teaching team that runs your lab (see below). An administrator handles
+        access changes in Supabase Auth; deleting a session membership does not
+        delete your Google account.
       </p>
 
       <h2>Children and eligibility</h2>

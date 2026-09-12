@@ -1,44 +1,31 @@
-# Instructor-controlled rapid fire
+# Instructor-controlled releases
 
-The latest requested workflow overrides the original fixed 30-question / 12-second settings. Those remain defaults, but each round can have its own approved settings.
+The instructor selects a section, 1–300 questions (limited to the pool), and 1–120 seconds per question. Settings and content freeze at approval. The next round retains those settings, capped by its available pool. Rounds run in sequence; end the current release before approving the next.
 
-## Interface
+## Three distinct clocks
 
-Open `/instructor` to:
+1. **Question deadline:** `served_at + seconds_per_question`. This is immutable. There is no additional acceptance grace. Answers at or after this boundary are timeouts.
+2. **Joining window:** release start plus question count × seconds. It closes admission to new attempts, not the question clocks of existing attempts. The instructor display labels this explicitly.
+3. **Session hard cutoff:** configured when opening the sitting (maximum three hours). It and manual instructor closure terminate outstanding questions early.
 
-1. See the total questions available in the selected round's pool.
-2. Choose how many to release (1–300, limited by the actual pool) and seconds per question (1–120).
-3. See total duration change immediately: questions × seconds. For example, 20 questions × 15 seconds = 5 minutes.
-4. Review the settings, then **Approve & release**. Approval starts the shared countdown immediately and freezes the settings.
-5. Watch the countdown or select **End rapid fire**, followed by **End for everyone**.
-6. After closure, configure the next round when its question pool exists. The previous release stays closed.
+A successful answer immediately serves the next question. An unanswered question times out at its original deadline; the next question's clock follows that deadline even offline. Recovery catches up all expired questions and returns only the currently pending question. Neither refresh, retries, clock changes nor duplicate tabs reset the attempt.
 
-Without both public Supabase environment values, this screen explicitly runs as a local setup preview, with sample pool counts. Its state persists within the browser tab; **New setup preview** is available only in this demonstration mode. It does not create student sessions or student scores.
+The release automatically ends after the joining window closes and all started runs are finalized. If nobody started, it ends when admission closes. State/report calls materialize finalization; clocks are enforced even if nobody is polling. Manual closure scores accepted answers and marks remaining questions as forced timeouts.
 
-With Supabase configured, the same screen requires Google sign-in and instructor authorization. It retrieves pool counts and sections from `instructor_state`, creates an instructor-owned session, saves settings with `configure_round`, releases using `go_live`, and ends using `end_round`. Google OAuth, the domain hook, instructor and roster provisioning must be configured as described in the README. The Google OAuth redirect allowlist must include `/instructor` for the deployed origin.
+## Sealing and recovery
 
-The URL distribution and Google Spaces integration are intentionally not implemented yet. No messages are sent.
+`submit_answer` returns only the next question or a completion marker. `submit_round` is an idempotent receipt; it never returns keys. `my_result` checks membership and releases the full frozen debrief only after the whole rapid fire is over — the session timer has run out or the host ended the session — never merely when one round's release closed. `student_state` likewise lists a round as reviewable only once the session has ended, so no solutions leak between rounds while play is live.
 
-## Timing and one-attempt rules
+`session_leaderboard` follows a different clock. It returns the cumulative standings — named by each player's real Google profile name — to a student as soon as that student has submitted, and stays live afterwards as classmates finish. It never exposes answers, so a finisher can see where they rank without holding the key to pass to peers who are still playing. It is sealed only for a student who has not yet submitted and whose session is still open.
 
-- One release corresponds to one round in a session. Nine sequential rounds remain supported.
-- A release closes at its server start time plus its approved count × seconds. Everyone shares that closing time; late arrivals receive only the remaining window.
-- Each served question also has its own approved timer and the existing one-second network grace. Grace never extends the overall release deadline.
-- Every game RPC checks the server deadline. Editing browser clocks, leaving the page, refreshing, or opening a second tab does not create more time or a second draw.
-- `(session_id, player_id, round_id)` uniquely identifies a student's run. A reconnect resumes that same run, a submitted run cannot restart, and an ended release cannot reopen.
-- The instructor can end a release early. Accepted answers are scored; all remaining questions are marked as forced timeouts worth zero.
-- The database rejects answers immediately after the deadline, even if no instructor tab is open. `instructor_state` polls every three seconds and finalizes expired runs; `round_report`, `go_live` and `end_session` also finalize when needed. If no one calls any of these, score materialization waits for the next call, but answer access is already closed by the database clock.
-- Detailed reports become accessible to the owning instructor after that release ends, without waiting for the whole sitting to end.
-- The three-hour sitting limit remains. A release that would exceed the existing session's closing time is refused.
+A student may join multiple sessions without changing earlier memberships. Section names are metadata; actual access is granted by `session_members`. Joining is limited to 10 attempts per account per minute. A submitted `(session, student, round)` cannot restart.
 
-## Metrics
+## Instructor / preview
 
-Each run snapshots its approved `question_count` and `seconds_per_question`. Accuracy and average time use that question count, and the early-answer threshold is strictly less than half that approved question time. For example, a 20-second question uses a 10-second threshold. Wrong answers remain zero points.
+The connected screen uses actual question counts, an instructor email allowlist and session ownership checks. Share its `/?j=CODE` URL manually; no Google Spaces messages are sent yet. Detailed reports are available to the owning instructor after the selected release ends.
 
-On forced closure, never-served questions keep NULL timestamps and contribute zero observed response time; they still count as timeouts in the accuracy denominator. A served, unanswered question records observed elapsed time until closure. The `forced_timeout` flag distinguishes forced closure from a student's recorded answer. The class average remains the average of per-student mean answer times, including zero time for never-seen questions; use the timeout counts alongside it when interpreting early-ended rounds.
+The offline preview demonstrates settings and a nominal countdown, with no student attempts to extend the window. It does not create sessions or scores. Public practice is also ungraded.
 
-## Verification
+## Migration
 
-Migration `202609110003_configurable_releases.sql` extends the existing RPCs, RLS, grants and metrics. Tests cover configurable draws above 30, custom scoring and half-time boundaries, insufficient pools, invalid settings, shared deadline rejection, partial result preservation, owner-only closure, immutable retries and denial of direct calls to internal scorers/finalizers.
-
-The browser preview has been tested locally. Hosted Supabase OAuth, PostgREST, real multi-user concurrency and student URL access still require integration testing before classroom use.
+Apply `202609110008_production_protocol.sql` between sittings and deploy its matching frontend. UUID option tokens replace the numeric submission signature. Existing completed runs retain results; historical attempts establish membership during upgrade. Lobby users with no attempt need to rejoin. Existing releases keep their prior cutoff; only newly launched releases use the separated clocks. No live rollout should occur mid-assessment.
