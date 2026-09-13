@@ -46,18 +46,39 @@ export type InstructorState = {
   server_now: string;
 };
 
+// A token minted at sign-in carries an `iat` from the auth server, but the
+// database validates it against its own clock, which can lag a second or two
+// behind. The first RPC right after signing in is then rejected as "JWT issued
+// at future" until that skew clears — which is why a manual reload appears to
+// "fix" it. This error is self-healing, so we detect it and retry.
+export function isClockSkewError(message: string): boolean {
+  return /issued\s*at\s*future|issuedatfuture|not yet valid|before issued/i.test(
+    message,
+  );
+}
+
 export async function instructorRpc<T>(
   name: string,
   args: Record<string, unknown> = {},
 ): Promise<T> {
   if (!supabase) throw new Error('A Supabase connection is required.');
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 15000);
-  let result;
-  try {
-    result = await supabase.rpc(name, args).abortSignal(controller.signal);
-  } finally {
-    window.clearTimeout(timer);
+  const call = async () => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      return await supabase!.rpc(name, args).abortSignal(controller.signal);
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+  let result = await call();
+  for (
+    let attempt = 0;
+    attempt < 3 && result.error && isClockSkewError(result.error.message);
+    attempt++
+  ) {
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    result = await call();
   }
   const { data, error } = result;
   if (error) throw new Error(error.message);

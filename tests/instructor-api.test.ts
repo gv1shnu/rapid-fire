@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { instructorRpc, previewPools, supabase } from '../src/instructor-api';
+import {
+  instructorRpc,
+  isClockSkewError,
+  previewPools,
+  supabase,
+} from '../src/instructor-api';
 
 describe('instructor-api preview catalogue', () => {
   it('exposes exactly nine rounds numbered 1..9', () => {
@@ -29,5 +34,27 @@ describe('instructor-api preview catalogue', () => {
     await expect(instructorRpc('instructor_state')).rejects.toThrow(
       /supabase connection is required/i,
     );
+  });
+
+  it('recognises the transient future-iat token error as clock skew', () => {
+    for (const message of [
+      'JWSError JWTIssuedAtFuture',
+      'JWT issued at future',
+      'token is not yet valid',
+      'token used before issued',
+    ]) {
+      expect(isClockSkewError(message)).toBe(true);
+    }
+  });
+
+  it('does not mistake real failures for clock skew', () => {
+    for (const message of [
+      'JWT expired',
+      'invalid claim: missing sub claim',
+      'host_only',
+      'permission denied for function instructor_state',
+    ]) {
+      expect(isClockSkewError(message)).toBe(false);
+    }
   });
 });
