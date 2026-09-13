@@ -650,6 +650,38 @@ footer {
   border-radius: 8px;
   margin: 6px 0 24px;
 }
+.tempter-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 0 0 24px;
+  border: 1px solid #43514a;
+  border-radius: 8px;
+  background: #16221f;
+  cursor: pointer;
+}
+.tempter-toggle input {
+  margin-top: 3px;
+  width: 17px;
+  height: 17px;
+  accent-color: #e6bc70;
+  flex-shrink: 0;
+}
+.tempter-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tempter-toggle strong {
+  font-size: 14px;
+  color: #eeeadd;
+}
+.tempter-toggle small {
+  font-size: 12px;
+  color: #a7b4ab;
+  line-height: 1.5;
+}
 .duration-calculation > div {
   display: flex;
   justify-content: space-between;
@@ -1059,4 +1091,48 @@ aside.release-summary {
   font-size: 20px;
   font-weight: 600;
   color: #e5bc75;
+}
+
+/* Live tempters hang beside the content without moving the answer buttons. */
+.live-question {
+  border-color: color-mix(in srgb, var(--round-accent) 22%, #3a4b3e);
+}
+.live-question .round-tag {
+  color: var(--round-accent);
+  border-color: var(--round-accent);
+}
+.live-question .timer-progress {
+  stroke: var(--round-accent);
+}
+.live-question .answer-option {
+  position: relative;
+  padding-right: 86px;
+}
+.live-question .answer-option.tempt {
+  animation: none;
+}
+.tempter-hang {
+  position: absolute;
+  right: 10px;
+  top: 0;
+  pointer-events: none;
+  transform-origin: 78% 44%;
+  animation: tempter-hang 2.8s ease-in-out infinite;
+}
+.tempter-hang.tempter-red {
+  animation-delay: -1.4s;
+}
+@keyframes tempter-hang {
+  0%,
+  100% {
+    transform: rotate(-5deg) translateY(0);
+  }
+  50% {
+    transform: rotate(5deg) translateY(2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tempter-hang {
+    animation: none;
+  }
 }

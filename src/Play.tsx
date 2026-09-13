@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { JerryTempter } from './JerryTempter';
 import { instructorRpc, previewPools, supabase } from './instructor-api';
 import {
   parseLeaderboard,
@@ -58,6 +59,18 @@ type View = {
 // The rapid fire always spans the nine lecture rounds; the student sees one
 // continuous question counter across all of them (e.g. Q34 / 99).
 const TOTAL_ROUNDS = 9;
+// Muted gold, sage, mineral and clay accents on the evergreen card.
+const ROUND_ACCENTS = [
+  '#cbb783',
+  '#aabb91',
+  '#8fb9a5',
+  '#91b7bd',
+  '#a2acc6',
+  '#b5a6bd',
+  '#c3a29a',
+  '#c5ac8f',
+  '#b9bd99',
+];
 // Each round is a themed lecture; label the card so rounds feel distinct as the
 // student flows through them. Titles are public flavor names, never answers.
 const roundTitle = (id: number) =>
@@ -349,6 +362,11 @@ export function Play({ code }: { code: string }) {
   const activeView = view.owner === `${user.id}:${code}` ? view : empty;
   const { question: q, result, session, pending, error } = activeView;
   const remaining = Math.max(0, Math.ceil((activeView.deadline - now) / 1000));
+  const tempting =
+    !!q?.tempt_options &&
+    pending === undefined &&
+    remaining > 0 &&
+    remaining <= q.seconds_per_question / 2;
   const playerName = (user.email?.split('@')[0] || 'Explorer').slice(0, 30);
   return (
     <main className="question-preview">
@@ -369,7 +387,15 @@ export function Play({ code }: { code: string }) {
           </div>
         )}
         {q ? (
-          <div className="question-card">
+          <div
+            className="question-card live-question"
+            style={
+              {
+                '--round-accent':
+                  ROUND_ACCENTS[q.round_id - 1] ?? ROUND_ACCENTS[0],
+              } as CSSProperties
+            }
+          >
             <div className="question-topline">
               <div className="question-labels">
                 <span className="round-tag">
@@ -420,7 +446,7 @@ export function Play({ code }: { code: string }) {
               {q.options.map((o, i) => (
                 <button
                   key={o.id}
-                  className={`answer-option${pending === o.id ? ' selected' : ''}`}
+                  className={`answer-option${pending === o.id ? ' selected' : ''}${tempting && q.tempt_options?.includes(o.id) ? ' tempt' : ''}`}
                   disabled={pending !== undefined || remaining === 0}
                   aria-pressed={pending === o.id}
                   onClick={() => command.current(o.id)}
@@ -429,13 +455,18 @@ export function Play({ code }: { code: string }) {
                     {String.fromCharCode(65 + i)}
                   </span>
                   <Content body={o.body} />
+                  {tempting && q.tempt_options?.includes(o.id) && (
+                    <JerryTempter angel={q.tempt_options[0] === o.id} />
+                  )}
                 </button>
               ))}
             </div>
             <p role="status" className="question-instruction">
               {pending !== undefined
                 ? 'Submitting… Your choice will be confirmed by the server.'
-                : 'Your choice stays sealed until the release ends.'}
+                : tempting
+                  ? 'Two voices are pointing you at answers — decide for yourself.'
+                  : 'Your choice stays sealed until the release ends.'}
             </p>
           </div>
         ) : result ? (

@@ -12,6 +12,7 @@ export type Question = {
   stem: string;
   body: Body;
   options: { id: string; body: Body }[];
+  tempt_options?: string[];
   served_at: string;
   deadline: string;
   server_now: string;
@@ -108,6 +109,18 @@ export function parsePayload(x: unknown): Payload {
         body(o.body),
     ) ||
     new Set(x.options.map((o) => o.id)).size !== 4
+  )
+    throw new Error('Invalid question response. Please reconnect.');
+  if (
+    x.tempt_options !== undefined &&
+    (!Array.isArray(x.tempt_options) ||
+      x.tempt_options.length !== 2 ||
+      new Set(x.tempt_options).size !== 2 ||
+      !x.tempt_options.every(
+        (token) =>
+          typeof token === 'string' &&
+          (x.options as Question['options']).some((o) => o.id === token),
+      ))
   )
     throw new Error('Invalid question response. Please reconnect.');
   return x as Question;

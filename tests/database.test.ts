@@ -21,6 +21,7 @@ type RpcResult = {
   seq: number;
   served_at: string;
   options: { id: string }[];
+  tempt_options: string[];
   round_id: number;
   deadline: string;
   server_now: string;
@@ -171,6 +172,94 @@ async function ownToken(seq: number, correct = true) {
   return String(r.rows[0].token);
 }
 describe('production PostgreSQL protocol', () => {
+  it('freezes one correct and one incorrect opaque tempter token without revealing the key', async () => {
+    const first = await round('start_round');
+    noKey(first);
+    expect(first.tempt_options).toHaveLength(2);
+    expect(new Set(first.tempt_options).size).toBe(2);
+    expect(
+      first.tempt_options.every((t) => first.options.some((o) => o.id === t)),
+    ).toBe(true);
+    expect(first.tempt_options).toContain(await ownToken(first.seq));
+    const resumed = await round('start_round');
+    expect(resumed.tempt_options).toEqual(first.tempt_options);
+    expect(resumed.options).toEqual(first.options);
+    noKey(resumed);
+    // Inspect every attempt server-side, including questions not served yet.
+    const pairs = await admin(
+      `select a.seq, a.tempt_tokens, a.option_tokens,
+      a.option_tokens[array_position(a.option_order,(o->>'id')::bigint)] correct_token
+      from public.attempts a join public.release_questions q using(session_id,round_id,question_id)
+      cross join lateral jsonb_array_elements(q.snapshot->'options') o
+      where a.session_id=$1 and a.player_id=$2 and (o->>'is_correct')::boolean`,
+      [session, player],
+    );
+    expect(pairs.rows).toHaveLength(5);
+    for (const row of pairs.rows) {
+      const pair = row.tempt_tokens as string[];
+      expect(pair).toHaveLength(2);
+      expect(new Set(pair).size).toBe(2);
+      expect(pair).toContain(row.correct_token);
+      expect(
+        pair.every((t) => (row.option_tokens as string[]).includes(t)),
+      ).toBe(true);
+    }
+    await identity(player);
+    const next = await choose(first.seq, first.tempt_options[0]);
+    noKey(next);
+    expect(next.seq).toBe(2);
+    expect(next.tempt_options).toEqual(
+      pairs.rows.find((r) => r.seq === 2)!.tempt_tokens,
+    );
+  });
+  it('can assign either avatar the correct token and keeps the selection helper private', async () => {
+    await round('start_round');
+    await admin('select setseed(0.42)');
+    const samples = await admin(
+      `select public.pick_tempter_tokens(q.snapshot,a.option_order,a.option_tokens) pair,
+      a.option_tokens[array_position(a.option_order,(o->>'id')::bigint)] correct_token
+      from public.attempts a join public.release_questions q using(session_id,round_id,question_id)
+      cross join lateral jsonb_array_elements(q.snapshot->'options') o
+      cross join generate_series(1,32)
+      where a.session_id=$1 and a.player_id=$2 and a.seq=1 and (o->>'is_correct')::boolean`,
+      [session, player],
+    );
+    expect(
+      new Set(
+        samples.rows.map((r) =>
+          (r.pair as string[]).indexOf(r.correct_token as string),
+        ),
+      ),
+    ).toEqual(new Set([0, 1]));
+    const permissions = await admin(
+      `select has_function_privilege('authenticated','public.pick_tempter_tokens(jsonb,bigint[],uuid[])','execute') allowed`,
+    );
+    expect(permissions.rows[0].allowed).toBe(false);
+  });
+  it('omits the tempter pair from the payload when the instructor disables it', async () => {
+    await identity(host);
+    const opened = await rpc(
+      'open_session',
+      ['A', new Date(Date.now() + 75 * 60000).toISOString()],
+      ['text', 'timestamptz'],
+    );
+    session = opened.session_id;
+    await rpc(
+      'start_rapid_fire',
+      [session, 3, 12, false],
+      ['uuid', 'smallint', 'smallint', 'boolean'],
+    );
+    await identity(player);
+    await rpc('join_session', [opened.code, 'Explorer', 'seed']);
+    const q = await round('start_round');
+    // No hints on the wire; the frozen pair still exists server-side but unused.
+    expect(q.tempt_options).toBeUndefined();
+    const stored = await admin(
+      'select count(*)::int n from public.attempts where session_id=$1 and tempt_tokens is not null',
+      [session],
+    );
+    expect(stored.rows[0].n).toBe(3);
+  });
   it('ships nine populated rounds and only the two approved domains', async () => {
     expect(
       (

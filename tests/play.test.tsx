@@ -140,6 +140,71 @@ describe('student question lifecycle', () => {
       h.rpc.mock.calls.filter((c) => c[0] === 'join_session'),
     ).toHaveLength(1);
   });
+  it('shows the frozen pair only at halfway and hides it immediately on selection', async () => {
+    const base = h.rpc.getMockImplementation()!;
+    h.rpc.mockImplementation(async (name: string, ...args: unknown[]) => {
+      if (name === 'start_round')
+        return { ...question(), tempt_options: [tokens[2], tokens[0]] };
+      if (name === 'submit_answer') throw new Error('Network offline');
+      return base(name, ...args);
+    });
+    await start();
+    const avatars = () => document.querySelectorAll('.tempter-hang');
+    expect(avatars()).toHaveLength(0);
+    await advance(4800);
+    expect(avatars()).toHaveLength(0);
+    await advance(200);
+    expect(avatars()).toHaveLength(2);
+    expect(
+      screen
+        .getByRole('button', { name: 'C Choice 3' })
+        .querySelector('.tempter-blue'),
+    ).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      screen
+        .getByRole('button', { name: 'A Choice 1' })
+        .querySelector('.tempter-red'),
+    ).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Two voices');
+    expect(
+      h.rpc.mock.calls.some((c) =>
+        ['my_result', 'session_leaderboard'].includes(c[0]),
+      ),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'B Choice 2' }));
+    expect(avatars()).toHaveLength(0);
+    await advance();
+    expect(h.rpc).toHaveBeenCalledWith('submit_answer', {
+      p_session: sid,
+      p_round: 1,
+      seq: 1,
+      option_id: tokens[1],
+    });
+    expect(avatars()).toHaveLength(0);
+  });
+  it('tolerates older questions without a pair even after halfway', async () => {
+    await start();
+    await advance(6000);
+    expect(document.querySelectorAll('.tempter')).toHaveLength(0);
+  });
+  it('uses a different accent for each round', async () => {
+    const base = h.rpc.getMockImplementation()!;
+    h.rpc.mockImplementation(async (name: string, ...args: unknown[]) =>
+      name === 'start_round'
+        ? question(1, state.current_round!)
+        : base(name, ...args),
+    );
+    await start();
+    const accents = new Set<string>();
+    for (let round = 1; round <= 9; round++) {
+      state.current_round = round;
+      await advance(2600);
+      const card = document.querySelector<HTMLElement>('.live-question')!;
+      accents.add(card.style.getPropertyValue('--round-accent'));
+    }
+    expect(accents.size).toBe(9);
+    expect(accents.has('')).toBe(false);
+  });
   it('ignores wall-clock changes during a question', async () => {
     await start();
     vi.setSystemTime(new Date('2030-01-01'));
@@ -383,6 +448,29 @@ describe('student question lifecycle', () => {
   });
 });
 describe('student wire validation', () => {
+  it.each([
+    null,
+    [],
+    [tokens[0]],
+    tokens,
+    [tokens[0], tokens[0]],
+    [tokens[0], 'invalid'],
+    [tokens[0], sid],
+    [tokens[0], 2],
+  ])('rejects malformed tempter pairs %#', (tempt_options) => {
+    expect(() => parsePayload({ ...question(), tempt_options })).toThrow();
+  });
+  it('accepts a pair in either order without a correctness marker', () => {
+    for (const tempt_options of [
+      [tokens[0], tokens[2]],
+      [tokens[2], tokens[0]],
+    ]) {
+      expect(parsePayload({ ...question(), tempt_options })).toHaveProperty(
+        'tempt_options',
+        tempt_options,
+      );
+    }
+  });
   it.each([
     null,
     {},

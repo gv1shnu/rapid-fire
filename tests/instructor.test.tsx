@@ -77,6 +77,24 @@ describe('Instructor setup preview', () => {
     expect(reviewButton()).toBeEnabled();
   });
 
+  it('defaults the good & evil Jerry hints toggle on and lets it be turned off', () => {
+    render(<Instructor />);
+    const toggle = screen.getByRole('checkbox', { name: /jerry hints/i });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).not.toBeChecked();
+  });
+  it('carries the Jerry-hints choice into the live monitor', async () => {
+    render(<Instructor />);
+    fireEvent.click(screen.getByRole('checkbox', { name: /jerry hints/i }));
+    fireEvent.click(reviewButton());
+    fireEvent.click(screen.getByRole('button', { name: /approve & start/i }));
+    await screen.findByText(/the rapid fire is underway/i);
+    const settings = document.querySelector('.release-settings') as HTMLElement;
+    expect(
+      within(settings).getByText('Jerry hints').closest('div'),
+    ).toHaveTextContent('Off');
+  });
   it('starts every round at once after approval and shows the countdown', async () => {
     render(<Instructor />);
     fireEvent.click(reviewButton());

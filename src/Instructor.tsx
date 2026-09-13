@@ -10,6 +10,7 @@ const storageKey = 'lost-schema-instructor-preview';
 type PreviewSession = {
   question_count: number;
   seconds_per_question: number;
+  tempters: boolean;
   closes_at: string;
   status: 'live' | 'closed';
 };
@@ -28,9 +29,10 @@ function loadPreview(): PreviewSession | null {
       !Number.isFinite(Date.parse(value.closes_at ?? ''))
     )
       return null;
-    return Date.now() >= Date.parse(value.closes_at)
-      ? { ...value, status: 'closed' }
-      : value;
+    const normalized = { ...value, tempters: value.tempters !== false };
+    return Date.now() >= Date.parse(normalized.closes_at)
+      ? { ...normalized, status: 'closed' }
+      : normalized;
   } catch {
     return null;
   }
@@ -59,6 +61,7 @@ export function Instructor() {
   const [preview, setPreview] = useState<PreviewSession | null>(loadPreview);
   const [questionCount, setQuestionCount] = useState('5');
   const [seconds, setSeconds] = useState('12');
+  const [tempters, setTempters] = useState(true);
   const [section, setSection] = useState('');
   const [review, setReview] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
@@ -80,6 +83,7 @@ export function Instructor() {
         question_count: preview.question_count,
         seconds_per_question: preview.seconds_per_question,
         duration_seconds: preview.question_count * preview.seconds_per_question,
+        tempters: preview.tempters,
       }
     : (connected?.config ?? null);
   const started = Boolean(config);
@@ -179,6 +183,7 @@ export function Instructor() {
         const next: PreviewSession = {
           question_count: count,
           seconds_per_question: allotted,
+          tempters,
           // A short demo window so the preview countdown is visible.
           closes_at: new Date(Date.now() + duration * 1000).toISOString(),
           status: 'live',
@@ -206,6 +211,7 @@ export function Instructor() {
           p_session: id,
           p_count: count,
           p_seconds: allotted,
+          p_tempters: tempters,
         });
         const state = await instructorRpc<InstructorState>('instructor_state', {
           p_session: id,
@@ -255,6 +261,7 @@ export function Instructor() {
     setPreview(null);
     setQuestionCount('5');
     setSeconds('12');
+    setTempters(true);
     setReview(false);
     setConfirmEnd(false);
   }
@@ -349,6 +356,10 @@ export function Instructor() {
                   <div>
                     <dt>Seconds per question</dt>
                     <dd>{config!.seconds_per_question}</dd>
+                  </div>
+                  <div>
+                    <dt>Jerry hints</dt>
+                    <dd>{config!.tempters ? 'On' : 'Off'}</dd>
                   </div>
                   {!isPreview && (
                     <>
@@ -499,6 +510,21 @@ export function Instructor() {
                       : 'Enter valid settings to calculate the duration.'}
                   </p>
                 </div>
+                <label className="tempter-toggle">
+                  <input
+                    type="checkbox"
+                    checked={tempters}
+                    disabled={review || busy}
+                    onChange={(event) => setTempters(event.target.checked)}
+                  />
+                  <span>
+                    <strong>Good &amp; evil Jerry hints</strong>
+                    <small>
+                      Past the halfway mark, an angel and a demon point at two
+                      answers — one is correct. Off = no avatars.
+                    </small>
+                  </span>
+                </label>
                 {review ? (
                   <div className="approval-panel">
                     <h3>Ready to start?</h3>

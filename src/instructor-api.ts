@@ -28,6 +28,7 @@ export type Config = {
   question_count: number;
   seconds_per_question: number;
   duration_seconds: number;
+  tempters: boolean;
 };
 export type InstructorState = {
   rounds: RoundPool[];
