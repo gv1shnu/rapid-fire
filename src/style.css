@@ -946,6 +946,35 @@ aside.release-summary {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+.review-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.review-nav button {
+  padding: 10px 16px;
+  border: 1px solid #3a4b3e;
+  border-radius: 999px;
+  background: #16221f;
+  color: #dfe4d8;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.review-nav button:hover {
+  border-color: #e5bc75;
+  color: #f2ead9;
+  background: #22301f;
+}
+.review-nav button:focus-visible {
+  outline: 2px solid #e5bc75;
+  outline-offset: 2px;
+}
 .leaderboard {
   margin-top: 28px;
   padding: 24px 28px;

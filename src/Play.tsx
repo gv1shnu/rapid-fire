@@ -55,6 +55,9 @@ type View = {
   error: string;
   deadline: number;
 };
+// The rapid fire always spans the nine lecture rounds; the student sees one
+// continuous question counter across all of them (e.g. Q34 / 99).
+const TOTAL_ROUNDS = 9;
 const empty: View = {
   owner: '',
   session: null,
@@ -365,8 +368,14 @@ export function Play({ code }: { code: string }) {
           <div className="question-card">
             <div className="question-topline">
               <span className="eyebrow">
-                QUESTION {String(q.seq).padStart(2, '0')}{' '}
-                <span className="muted">/ {q.question_count}</span>
+                QUESTION{' '}
+                {String((q.round_id - 1) * q.question_count + q.seq).padStart(
+                  2,
+                  '0',
+                )}{' '}
+                <span className="muted">
+                  / {TOTAL_ROUNDS * q.question_count}
+                </span>
               </span>
               <div
                 className="timer"
@@ -489,7 +498,7 @@ export function Play({ code }: { code: string }) {
           </div>
         )}
         {!q && session && session.results.length > 0 && (
-          <nav aria-label="Completed rounds">
+          <nav className="review-nav" aria-label="Completed rounds">
             {session.results.map((r) => (
               <button key={r} onClick={() => review.current(r)}>
                 Review round {r}
