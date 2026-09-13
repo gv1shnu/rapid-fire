@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { InstructorReports } from './InstructorReports';
 import {
   instructorRpc,
   previewPools,
@@ -57,7 +58,7 @@ function clockLabel(seconds: number) {
 export function Instructor() {
   const isPreview = !supabase;
   const [connected, setConnected] = useState<InstructorState | null>(null);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewSession | null>(loadPreview);
   const [questionCount, setQuestionCount] = useState('5');
   const [seconds, setSeconds] = useState('12');
@@ -131,7 +132,7 @@ export function Instructor() {
   useEffect(() => {
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange((_event, session) =>
-      setAuthenticated(Boolean(session)),
+      setAuthenticated(session?.user.id ?? null),
     );
     return () => data.subscription.unsubscribe();
   }, []);
@@ -597,6 +598,22 @@ export function Instructor() {
               Wrong answers carry no negative points.
             </div>
           </aside>
+          {started &&
+            ended &&
+            (isPreview ? (
+              <p className="closed-notice">
+                Leaderboard and detailed reports are available in a live session
+                after it ends.
+              </p>
+            ) : (
+              connected?.session && (
+                <InstructorReports
+                  key={`${authenticated}:${connected.session.id}`}
+                  session={connected.session.id}
+                  rounds={connected.rounds}
+                />
+              )
+            ))}
         </div>
       )}
       <footer>

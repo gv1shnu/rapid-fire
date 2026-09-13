@@ -73,7 +73,7 @@ React browser
   ├─ Google OAuth → Supabase Auth → exact domain / verified provider checks
   └─ Supabase RPC
        ├─ instructor: open_session, configure_round, go_live, end_round,
-       │              end_session, instructor_state, round_report
+       │              end_session, instructor_state, session_report, round_report
        ├─ student: join_session, student_state, start_round, next_question,
        │           submit_answer, submit_round, my_result
        └─ private helpers / tables (no direct browser access)
@@ -122,7 +122,7 @@ Also set the two public Supabase variables. This explicit check fails if legal c
 ## Future additions
 
 - Google Spaces link distribution after instructor approval.
-- Instructor analytics interface and CSV export over the existing report RPC.
+- CSV export over the instructor session and round reports.
 - Round-specific stories, visual themes, and the expedition trail.
 - Realtime notifications to replace periodic status polling.
 - Deployment-specific monitoring, campus load rehearsals and retention automation.

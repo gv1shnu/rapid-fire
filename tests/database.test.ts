@@ -1,3 +1,4 @@
+import { parseSessionReport, parseRoundReport } from '../src/instructor-api';
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { beforeAll, afterAll, beforeEach, describe, it, expect } from 'vitest';
@@ -872,5 +873,141 @@ describe('production PostgreSQL protocol', () => {
       'question_requires_four_options_one_correct',
     );
     await db.exec('rollback');
+  });
+});
+
+describe('instructor session report', () => {
+  const report = async () =>
+    parseSessionReport(await rpc('session_report', [session], ['uuid']));
+  it('requires the assigned host and instructor allowlist, and rejects live sessions', async () => {
+    await expect(report()).rejects.toThrow('host_only');
+    await admin(
+      "insert into public.instructor_emails values('outsider@example.edu')",
+    );
+    await identity(outsider);
+    await expect(report()).rejects.toThrow('host_only');
+    await admin(
+      "delete from public.instructor_emails where email='outsider@example.edu'",
+    );
+    await identity(host);
+    await expect(report()).rejects.toThrow('report_available_after_session');
+    await admin(
+      "delete from public.instructor_emails where email='host@example.edu'",
+    );
+    await identity(host);
+    await expect(report()).rejects.toThrow('host_only');
+    await admin(
+      "insert into public.instructor_emails values('host@example.edu')",
+    );
+  });
+  it('ranks ties by total time and aggregates across submitted rounds with N = 5', async () => {
+    // Controlled persisted results isolate aggregation from already-tested scoring.
+    await admin(
+      `insert into public.players(id,section,nickname,avatar_seed) values
+      ($1,'A','Host nickname','seed'),($2,'A','Other nickname','seed')`,
+      [host, outsider],
+    );
+    await admin(
+      `insert into public.session_members(session_id,player_id) values($1,$2),($1,$3)`,
+      [session, host, outsider],
+    );
+    await admin(
+      `update auth.users set raw_user_meta_data='{"full_name":"  ","name":"Fallback Name"}' where id=$1`,
+      [outsider],
+    );
+    await admin(
+      `insert into public.round_runs(session_id,player_id,round_id,question_count,seconds_per_question,submitted_at,total_points,total_time,best_streak,correct_count,wrong_count,timeout_count,under_half_count) values
+      ($1,$2,1,5,12,now(),200,12,3,3,1,1,2),
+      ($1,$2,2,5,12,now(),100,8,2,2,1,2,1),
+      ($1,$3,1,5,12,now(),300,25,4,4,1,0,4),
+      ($1,$4,1,5,12,now(),300,20,5,5,0,0,5)`,
+      [session, player, outsider, host],
+    );
+    await identity(host);
+    await rpc('end_session', [session], ['uuid']);
+    const data = await report();
+    expect(data.question_count).toBe(5);
+    expect(data.students.map((s) => s.rank)).toEqual([1, 1, 3]);
+    expect(data.students[2].player_id).toBe(outsider);
+    expect(data.students[2].name).toBe('Fallback Name');
+    expect(data.students.find((s) => s.player_id === player)).toMatchObject({
+      name: 'Vishnu Gandarapu',
+      total_points: 300,
+      best_streak: 3,
+      rounds_completed: 2,
+      correct_count: 5,
+      wrong_count: 2,
+      timeout_count: 3,
+      total_answer_seconds: 20,
+      accuracy_percent: 50,
+      average_answer_seconds: 2,
+      answers_under_half_time: 3,
+    });
+    expect(data.summary).toMatchObject({
+      submitted_students: 3,
+      students_joined: 3,
+      average_score: 300,
+      average_wrong_count: 1,
+      average_timeout_count: 1,
+      answers_under_half_time: 12,
+      students_with_under_half_answers: 3,
+    });
+    expect(data.summary.average_correct_count).toBeCloseTo(14 / 3);
+    expect(data.summary.average_accuracy_percent).toBeCloseTo(230 / 3);
+    expect(data.summary.average_answer_seconds).toBeCloseTo(11 / 3);
+    expect(data.summary.average_total_answer_seconds).toBeCloseTo(65 / 3);
+    // Ranking prioritizes points even when a lower scorer answered faster.
+    await admin(
+      'update public.round_runs set total_points=299,total_time=1 where session_id=$1 and player_id=$2',
+      [session, host],
+    );
+    await identity(host);
+    expect((await report()).students.map((s) => s.player_id)).toEqual([
+      player,
+      outsider,
+      host,
+    ]);
+    await admin("update auth.users set raw_user_meta_data='{}' where id=$1", [
+      outsider,
+    ]);
+    await identity(host);
+    expect(
+      (await report()).students.find((s) => s.player_id === outsider)?.name,
+    ).toBe('Other nickname');
+  });
+  it('finalizes unfinished runs after the automatic cutoff and remains idempotent', async () => {
+    await round('start_round');
+    await admin(
+      "update public.sessions set closes_at=clock_timestamp()-interval '1 second' where id=$1",
+      [session],
+    );
+    await identity(host);
+    const data = await report();
+    expect(data.students[0]).toMatchObject({
+      rounds_completed: 1,
+      correct_count: 0,
+      wrong_count: 0,
+      timeout_count: 5,
+      accuracy_percent: 0,
+    });
+    expect(await report()).toEqual(data);
+    const detail = parseRoundReport(await round('round_report'));
+    expect(detail.students[0].accuracy_percent).toBe(0);
+  });
+  it('returns zero counts and null averages for joined students without submitted runs', async () => {
+    await identity(host);
+    await rpc('end_session', [session], ['uuid']);
+    const data = await report();
+    expect(data.students).toEqual([]);
+    expect(data.summary.submitted_students).toBe(0);
+    expect(data.summary.students_joined).toBe(1);
+    expect(data.summary.answers_under_half_time).toBe(0);
+    for (const [key, value] of Object.entries(data.summary)) {
+      if (key.startsWith('average_')) expect(value).toBeNull();
+    }
+    const permissions = await admin(
+      "select has_function_privilege('anon','public.session_report(uuid)','execute') allowed",
+    );
+    expect(permissions.rows[0].allowed).toBe(false);
   });
 });

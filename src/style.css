@@ -1136,3 +1136,83 @@ aside.release-summary {
     animation: none;
   }
 }
+
+.instructor-report {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.instructor-report h2 {
+  margin-top: 0;
+}
+.report-summary {
+  display: grid;
+  gap: 12px 24px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 125px), 1fr));
+}
+.report-summary dd {
+  margin: 0;
+}
+.report-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid #43514a;
+  border-radius: 8px;
+  margin: 18px 0;
+}
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+.report-table caption {
+  text-align: left;
+  padding: 12px;
+  color: #b7c0b8;
+}
+.report-table th,
+.report-table td {
+  padding: 12px;
+  border-bottom: 1px solid #43514a;
+  vertical-align: top;
+  min-width: 85px;
+}
+.report-table thead th {
+  color: #d9be86;
+  font-weight: 500;
+}
+.report-table th[scope='row'] {
+  min-width: 170px;
+  font-weight: 500;
+}
+.report-round {
+  border-top: 1px solid #43514a;
+  padding: 16px 0;
+}
+.instructor-report summary {
+  cursor: pointer;
+  color: #eeeadd;
+}
+.instructor-report summary:focus-visible,
+.report-table-scroll:focus-visible {
+  outline: 2px solid #e5bc75;
+  outline-offset: 3px;
+}
+.report-note,
+.report-student-details {
+  color: #b7c0b8;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.report-student-details dd {
+  margin: 0 0 8px;
+}
+
+.report-summary > div {
+  flex-direction: column;
+  gap: 6px;
+}
+.report-summary dd {
+  font-size: 20px;
+  color: #eeeadd;
+}

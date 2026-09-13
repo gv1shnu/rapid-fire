@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
+import { parseSessionReport } from '../src/instructor-api';
 import { readFileSync, readdirSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -60,7 +61,7 @@ describe.skipIf(!url)('PostgreSQL 17 concurrent transactions', () => {
   do $$begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon;end if;if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated;end if;if not exists(select 1 from pg_roles where rolname='supabase_auth_admin') then create role supabase_auth_admin;end if;end$$;
   grant usage on schema public to anon,authenticated;
   create schema auth;create schema realtime;
-  create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb);
+  create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb,raw_user_meta_data jsonb);
   create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
   grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;
   create function realtime.send(payload jsonb,event text,topic text,private boolean) returns void language sql as $$select$$;`);
@@ -74,7 +75,7 @@ describe.skipIf(!url)('PostgreSQL 17 concurrent transactions', () => {
     );
     for (const [i, id] of [host, ...students].entries())
       await pool.query(
-        `insert into auth.users values($1,$2,now(),'{"provider":"google"}')`,
+        `insert into auth.users values($1,$2,now(),'{"provider":"google"}','{}')`,
         [id, `student${i}@example.edu`],
       );
     await pool.query(
@@ -201,5 +202,19 @@ describe.skipIf(!url)('PostgreSQL 17 concurrent transactions', () => {
         )
       ).rows,
     ).toEqual(before);
+    const reports = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        call(host, 'session_report', [session], ['uuid']),
+      ),
+    );
+    const report = parseSessionReport(reports[0]);
+    expect(report.summary.submitted_students).toBe(120);
+    expect(report.question_count).toBe(2);
+    expect(report.students.reduce((n, s) => n + s.total_points, 0)).toBe(
+      before[0].total,
+    );
+    expect(
+      reports.every((r) => JSON.stringify(r) === JSON.stringify(reports[0])),
+    ).toBe(true);
   }, 30000);
 });
