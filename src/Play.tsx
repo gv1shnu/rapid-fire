@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { instructorRpc, supabase } from './instructor-api';
+import { instructorRpc, previewPools, supabase } from './instructor-api';
 import {
   parseLeaderboard,
   parsePayload,
@@ -58,6 +58,10 @@ type View = {
 // The rapid fire always spans the nine lecture rounds; the student sees one
 // continuous question counter across all of them (e.g. Q34 / 99).
 const TOTAL_ROUNDS = 9;
+// Each round is a themed lecture; label the card so rounds feel distinct as the
+// student flows through them. Titles are public flavor names, never answers.
+const roundTitle = (id: number) =>
+  previewPools.find((p) => p.id === id)?.title ?? `Round ${id}`;
 const empty: View = {
   owner: '',
   session: null,
@@ -367,16 +371,22 @@ export function Play({ code }: { code: string }) {
         {q ? (
           <div className="question-card">
             <div className="question-topline">
-              <span className="eyebrow">
-                QUESTION{' '}
-                {String((q.round_id - 1) * q.question_count + q.seq).padStart(
-                  2,
-                  '0',
-                )}{' '}
-                <span className="muted">
-                  / {TOTAL_ROUNDS * q.question_count}
+              <div className="question-labels">
+                <span className="round-tag">
+                  ROUND {String(q.round_id).padStart(2, '0')} ·{' '}
+                  {roundTitle(q.round_id)}
                 </span>
-              </span>
+                <span className="eyebrow">
+                  QUESTION{' '}
+                  {String((q.round_id - 1) * q.question_count + q.seq).padStart(
+                    2,
+                    '0',
+                  )}{' '}
+                  <span className="muted">
+                    / {TOTAL_ROUNDS * q.question_count}
+                  </span>
+                </span>
+              </div>
               <div
                 className="timer"
                 role="timer"

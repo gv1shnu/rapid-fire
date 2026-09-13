@@ -15,6 +15,10 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('../src/instructor-api', () => ({
   instructorRpc: h.rpc,
+  previewPools: [
+    { id: 1, title: 'The Vault of Keys', available_questions: 45 },
+    { id: 2, title: 'Guild City', available_questions: 44 },
+  ],
   supabase: {
     auth: {
       getSession: async () => ({ data: { session: h.session } }),
