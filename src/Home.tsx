@@ -133,11 +133,6 @@ export function Home() {
         <a className="subtle-link preview-link" href="/?preview=question">
           Try the first question →
         </a>
-        <p className="note">
-          Question count and time set by your instructor
-          <br />
-          No scores or hints until the debrief.
-        </p>
       </section>
       <aside aria-label="Expedition route">
         <span>01</span>
