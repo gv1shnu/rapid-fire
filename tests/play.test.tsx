@@ -99,9 +99,8 @@ beforeEach(() => {
     session_id: sid,
     status: 'live',
     current_round: 1,
-    release_status: 'live',
+    done: false,
     can_start: true,
-    submitted: false,
     server_now: new Date().toISOString(),
     results: [],
   };
@@ -203,18 +202,18 @@ describe('student question lifecycle', () => {
       h.rpc.mock.calls.filter((c) => c[0] === 'submit_answer'),
     ).toHaveLength(2);
   });
-  it('clears the current question when the instructor ends the release', async () => {
+  it('clears the current question when the student finishes every round', async () => {
     await start();
-    state.release_status = 'ended';
-    state.submitted = true;
-    state.results = [];
+    state.done = true;
+    state.current_round = null;
+    state.can_start = false;
     await advance(2600);
     expect(
       screen.queryByRole('heading', { name: 'Question 1.1' }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('timer')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('heading', { name: 'Submission received.' }),
+      screen.getByRole('heading', { name: 'You finished the rapid fire.' }),
     ).toBeVisible();
   });
   it('binds a new question to its new round after advancement', async () => {
@@ -233,7 +232,7 @@ describe('student question lifecycle', () => {
       expect.objectContaining({ p_round: 2, seq: 1 }),
     );
   });
-  it('shows a sealed receipt to early finishers and never requests their keys', async () => {
+  it('never requests answer keys when a round completes', async () => {
     const base = h.rpc.getMockImplementation()!;
     h.rpc.mockImplementation(async (name: string, ...args: unknown[]) =>
       name === 'submit_answer'
@@ -245,29 +244,29 @@ describe('student question lifecycle', () => {
         : base(name, ...args),
     );
     await start();
-    state.submitted = true;
     fireEvent.click(screen.getByRole('button', { name: /A Choice 1/ }));
     await advance(3000);
-    expect(
-      screen.getByRole('heading', { name: 'Submission received.' }),
-    ).toBeVisible();
+    // Self-paced: a completed round hands back no keys; solutions stay sealed.
     expect(h.rpc.mock.calls.some((c) => c[0] === 'my_result')).toBe(false);
   });
-  it('recovers full debrief content on a refreshed closed session', async () => {
+  it('recovers full debrief content on review after the session closes', async () => {
     state.status = 'closed';
-    state.release_status = 'ended';
-    state.submitted = true;
+    state.done = true;
+    state.can_start = false;
     state.results = [1];
     await start();
+    fireEvent.click(screen.getByRole('button', { name: 'Review round 1' }));
+    await advance();
     expect(screen.getByText(/Saved question after refresh/)).toBeVisible();
     expect(screen.getByText('Saved explanation')).toBeVisible();
     expect(screen.getByText('Saved option 1')).toBeVisible();
     expect(h.rpc.mock.calls.some((c) => c[0] === 'start_round')).toBe(false);
   });
-  it('shows the live leaderboard by real name as soon as the student submits', async () => {
-    // Between rounds: submitted, session still live, solutions not yet released.
-    state.submitted = true;
-    state.release_status = 'ended';
+  it('shows the live leaderboard by real name once the student finishes every round', async () => {
+    // Finished all rounds, session still live, solutions not yet released.
+    state.done = true;
+    state.current_round = null;
+    state.can_start = false;
     const base = h.rpc.getMockImplementation()!;
     h.rpc.mockImplementation(async (name: string, ...args: unknown[]) =>
       name === 'session_leaderboard'
@@ -298,11 +297,13 @@ describe('student question lifecycle', () => {
       false,
     );
   });
-  it('does not start a second attempt after refresh of a submitted live round', async () => {
-    state.submitted = true;
+  it('does not start a round once the student has finished every round', async () => {
+    state.done = true;
+    state.current_round = null;
+    state.can_start = false;
     await start();
     expect(
-      screen.getByRole('heading', { name: 'Submission received.' }),
+      screen.getByRole('heading', { name: 'You finished the rapid fire.' }),
     ).toBeVisible();
     expect(h.rpc.mock.calls.some((c) => c[0] === 'start_round')).toBe(false);
   });

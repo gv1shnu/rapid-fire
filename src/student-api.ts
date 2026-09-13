@@ -23,10 +23,10 @@ export type Payload =
 export type StudentState = {
   session_id: string;
   status: 'lobby' | 'live' | 'closed';
+  // The player's own next/in-progress round (lowest unsubmitted), null when done.
   current_round: number | null;
-  release_status: 'draft' | 'live' | 'ended' | null;
-  can_start: boolean | null;
-  submitted: boolean;
+  done: boolean;
+  can_start: boolean;
   server_now: string;
   results: number[];
 };
@@ -118,11 +118,8 @@ export function parseState(x: unknown): StudentState {
     typeof x.session_id !== 'string' ||
     !['lobby', 'live', 'closed'].includes(String(x.status)) ||
     (x.current_round !== null && !integer(x.current_round)) ||
-    ![null, 'draft', 'live', 'ended'].includes(
-      x.release_status as string | null,
-    ) ||
-    ![null, true, false].includes(x.can_start as boolean | null) ||
-    typeof x.submitted !== 'boolean' ||
+    typeof x.done !== 'boolean' ||
+    typeof x.can_start !== 'boolean' ||
     !timestamp(x.server_now) ||
     !Array.isArray(x.results) ||
     !x.results.every(integer)

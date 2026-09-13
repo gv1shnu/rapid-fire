@@ -89,11 +89,10 @@ describe.skipIf(!url)('PostgreSQL 17 concurrent transactions', () => {
     session = String(opened.session_id);
     await call(
       host,
-      'configure_round',
-      [session, 1, 2, 120],
-      ['uuid', 'smallint', 'smallint', 'smallint'],
+      'start_rapid_fire',
+      [session, 2, 120],
+      ['uuid', 'smallint', 'smallint'],
     );
-    await call(host, 'go_live', [session, 1], ['uuid', 'smallint']);
     await Promise.all(
       students.map((id) =>
         call(
@@ -177,12 +176,12 @@ describe.skipIf(!url)('PostgreSQL 17 concurrent transactions', () => {
       );
     const outcomes = await Promise.allSettled([
       ...actions,
-      call(host, 'end_round', [session, 1], ['uuid', 'smallint']),
+      call(host, 'end_session', [session], ['uuid']),
     ]);
     expect(outcomes.at(-1)?.status).toBe('fulfilled');
     for (const outcome of outcomes)
       if (outcome.status === 'rejected')
-        expect(String(outcome.reason)).toMatch(/round_ended/);
+        expect(String(outcome.reason)).toMatch(/round_ended|session_closed/);
     const rows = await pool.query(
       'select count(*)::int n,count(*) filter(where submitted_at is not null)::int done,min(total_points)::int minimum from public.round_runs',
     );
@@ -194,7 +193,7 @@ describe.skipIf(!url)('PostgreSQL 17 concurrent transactions', () => {
         'select sum(total_points)::int total from public.round_runs',
       )
     ).rows;
-    await call(host, 'end_round', [session, 1], ['uuid', 'smallint']);
+    await call(host, 'end_session', [session], ['uuid']);
     expect(
       (
         await pool.query(

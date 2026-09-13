@@ -4,27 +4,32 @@ import {
   previewPools,
   supabase,
   type InstructorState,
-  type Release,
 } from './instructor-api';
 
 const storageKey = 'lost-schema-instructor-preview';
-function loadPreview(): Release | null {
+type PreviewSession = {
+  question_count: number;
+  seconds_per_question: number;
+  closes_at: string;
+  status: 'live' | 'closed';
+};
+function loadPreview(): PreviewSession | null {
   try {
-    const value: Release | null = JSON.parse(
+    const value: PreviewSession | null = JSON.parse(
       sessionStorage.getItem(storageKey) ?? 'null',
     );
     if (
       !value ||
-      !['live', 'ended'].includes(value.status) ||
       !Number.isInteger(value.question_count) ||
       value.question_count < 1 ||
       !Number.isInteger(value.seconds_per_question) ||
       value.seconds_per_question < 1 ||
+      !['live', 'closed'].includes(value.status) ||
       !Number.isFinite(Date.parse(value.closes_at ?? ''))
     )
       return null;
-    return value.status === 'live' && Date.now() >= Date.parse(value.closes_at!)
-      ? { ...value, status: 'ended', ended_at: value.closes_at }
+    return Date.now() >= Date.parse(value.closes_at)
+      ? { ...value, status: 'closed' }
       : value;
   } catch {
     return null;
@@ -39,22 +44,23 @@ function durationLabel(seconds: number) {
     : `${rest} sec`;
 }
 function clockLabel(seconds: number) {
-  return `${Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+  const total = Math.max(0, seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
 export function Instructor() {
   const isPreview = !supabase;
   const [connected, setConnected] = useState<InstructorState | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
-  const [preview, setPreview] = useState<Release | null>(loadPreview);
-  const [roundId, setRoundId] = useState(1);
-  const [questionCount, setQuestionCount] = useState('30');
+  const [preview, setPreview] = useState<PreviewSession | null>(loadPreview);
+  const [questionCount, setQuestionCount] = useState('5');
   const [seconds, setSeconds] = useState('12');
   const [section, setSection] = useState('');
   const [review, setReview] = useState(false);
-  const [preparingNext, setPreparingNext] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -67,38 +73,53 @@ export function Instructor() {
       return null;
     }
   });
-  const release = isPreview ? preview : connected?.release;
-  const pools = isPreview ? previewPools : (connected?.rounds ?? []);
-  const selectedPool = pools.find((pool) => pool.id === roundId);
+
+  // One configuration governs the whole sitting; there is no per-round setup.
+  const config = isPreview
+    ? preview && {
+        question_count: preview.question_count,
+        seconds_per_question: preview.seconds_per_question,
+        duration_seconds: preview.question_count * preview.seconds_per_question,
+      }
+    : (connected?.config ?? null);
+  const started = Boolean(config);
+  const closesAt = isPreview
+    ? (preview?.closes_at ?? null)
+    : (connected?.session?.closes_at ?? null);
+  const code = isPreview ? null : connected?.session?.code;
+  // The single count fits every round, so the smallest lecture pool caps it.
+  const minAvailable = isPreview
+    ? Math.min(...previewPools.map((p) => p.available_questions))
+    : (connected?.min_available ?? 0);
+  const roundCount = isPreview
+    ? previewPools.length
+    : (connected?.rounds.length ?? 9);
   const count = Number(questionCount);
   const allotted = Number(seconds);
   const duration = count * allotted;
   const valid =
     Number.isInteger(count) &&
     count >= 1 &&
-    count <= Math.min(300, selectedPool?.available_questions ?? 0) &&
+    count <= Math.min(300, minAvailable) &&
     Number.isInteger(allotted) &&
     allotted >= 1 &&
     allotted <= 120 &&
-    duration < 10800 &&
     (isPreview || section !== '' || Boolean(sessionId));
-  const deadline = Date.parse(
-    release?.admission_closes_at ?? release?.closes_at ?? '',
-  );
+  const deadline = Date.parse(closesAt ?? '');
   const left = Number.isFinite(deadline)
     ? Math.max(0, Math.ceil((deadline - now) / 1000))
     : 0;
-  const ended =
-    release?.status === 'ended' ||
-    (isPreview && now > 0 && release?.status === 'live' && left === 0);
-  const released = Boolean(
-    release && release.status !== 'draft' && !preparingNext,
+  const sessionStatus = isPreview
+    ? preview?.status
+    : connected?.session?.status;
+  const ended = Boolean(
+    started && (sessionStatus === 'closed' || (now > 0 && left === 0)),
   );
 
   useEffect(() => {
     const timer = window.setInterval(
       () => setNow(isPreview ? Date.now() : performance.now() + serverOffset),
-      100,
+      250,
     );
     return () => window.clearInterval(timer);
   }, [serverOffset, isPreview]);
@@ -126,9 +147,7 @@ export function Instructor() {
       } catch (err) {
         if (active)
           setError(
-            err instanceof Error
-              ? err.message
-              : 'Could not refresh the release.',
+            err instanceof Error ? err.message : 'Could not refresh the state.',
           );
       }
     }
@@ -151,25 +170,21 @@ export function Instructor() {
     if (authError) setError(authError.message);
   }
 
-  async function approve() {
-    if (!valid || busy || released) return;
+  async function start() {
+    if (!valid || busy || started) return;
     setBusy(true);
     setError('');
     try {
       if (isPreview) {
-        const started = Date.now();
-        const next: Release = {
-          round_id: roundId,
+        const next: PreviewSession = {
           question_count: count,
           seconds_per_question: allotted,
-          duration_seconds: duration,
+          // A short demo window so the preview countdown is visible.
+          closes_at: new Date(Date.now() + duration * 1000).toISOString(),
           status: 'live',
-          started_at: new Date(started).toISOString(),
-          closes_at: new Date(started + duration * 1000).toISOString(),
-          ended_at: null,
         };
         sessionStorage.setItem(storageKey, JSON.stringify(next));
-        setNow(started);
+        setNow(Date.now());
         setPreview(next);
       } else {
         let id = sessionId;
@@ -187,13 +202,11 @@ export function Instructor() {
           setSessionId(id);
           sessionStorage.setItem('lost-schema-host-session', id);
         }
-        await instructorRpc('configure_round', {
+        await instructorRpc('start_rapid_fire', {
           p_session: id,
-          p_round: roundId,
           p_count: count,
           p_seconds: allotted,
         });
-        await instructorRpc('go_live', { p_session: id, p_round: roundId });
         const state = await instructorRpc<InstructorState>('instructor_state', {
           p_session: id,
         });
@@ -201,65 +214,26 @@ export function Instructor() {
         setServerOffset(Date.parse(state.server_now) - performance.now());
       }
       setReview(false);
-      setPreparingNext(false);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not release the rapid fire.',
+        err instanceof Error ? err.message : 'Could not start the rapid fire.',
       );
     } finally {
       setBusy(false);
     }
   }
 
-  function newPreview() {
-    sessionStorage.removeItem(storageKey);
-    setPreview(null);
-    setPreparingNext(false);
-    setRoundId(1);
-    setQuestionCount('30');
-    setSeconds('12');
-    setReview(false);
-    setConfirmEnd(false);
-  }
-
-  function prepareNextRound() {
-    if (!release || !ended) return;
-    const nextId = release.round_id + 1;
-    setRoundId(nextId);
-    setQuestionCount(
-      String(
-        Math.min(
-          release.question_count,
-          pools.find((pool) => pool.id === nextId)?.available_questions ?? 0,
-        ),
-      ),
-    );
-    setSeconds(String(release.seconds_per_question));
-    setReview(false);
-    setConfirmEnd(false);
-    setPreparingNext(true);
-  }
-
-  async function endRelease() {
-    if (!release || busy) return;
+  async function endRun() {
+    if (!started || busy) return;
     setBusy(true);
     setError('');
     try {
       if (isPreview) {
-        const next: Release = {
-          ...release,
-          status: 'ended',
-          ended_at: new Date().toISOString(),
-        };
+        const next: PreviewSession = { ...preview!, status: 'closed' };
         sessionStorage.setItem(storageKey, JSON.stringify(next));
         setPreview(next);
       } else {
-        await instructorRpc('end_round', {
-          p_session: sessionId,
-          p_round: release.round_id,
-        });
+        await instructorRpc('end_session', { p_session: sessionId });
         setConnected(
           await instructorRpc<InstructorState>('instructor_state', {
             p_session: sessionId,
@@ -276,6 +250,15 @@ export function Instructor() {
     }
   }
 
+  function newPreview() {
+    sessionStorage.removeItem(storageKey);
+    setPreview(null);
+    setQuestionCount('5');
+    setSeconds('12');
+    setReview(false);
+    setConfirmEnd(false);
+  }
+
   return (
     <main className="instructor-page">
       <header>
@@ -288,7 +271,10 @@ export function Instructor() {
         <div>
           <p className="eyebrow">THE CONTROL ROOM</p>
           <h1>Set the pace.</h1>
-          <p>Choose the questions. Set the clock. Release when you’re ready.</p>
+          <p>
+            Set the questions and the clock once. Every lecture round runs back
+            to back, at each student’s own pace.
+          </p>
         </div>
         <a className="subtle-link" href="/?preview=question">
           View a sample question ↗
@@ -322,65 +308,74 @@ export function Instructor() {
       ) : (
         <div className="instructor-layout">
           <section className="setup-panel" aria-labelledby="setup-title">
-            {released ? (
+            {started ? (
               <>
                 <div className="panel-heading">
                   <span className={`release-pill ${ended ? 'ended' : ''}`}>
                     {ended ? 'ENDED' : 'LIVE'}
                   </span>
-                  <span className="muted">
-                    Round {release!.round_id.toString().padStart(2, '0')}
-                  </span>
+                  <span className="muted">All {roundCount} rounds</span>
                 </div>
                 <h2 id="setup-title">
                   {ended
-                    ? 'This rapid fire is closed.'
+                    ? 'The rapid fire has ended.'
                     : 'The rapid fire is underway.'}
                 </h2>
                 <p>
                   {ended
-                    ? 'No new answers or repeat attempts are accepted.'
-                    : 'Each question has its own timer. One attempt per student.'}
+                    ? 'No new answers are accepted. Answers are in each student’s debrief.'
+                    : 'Students self-pace through every round. Each question has its own timer.'}
                 </p>
-                <div
-                  className="release-clock"
-                  role="timer"
-                  aria-label={
-                    ended ? 'Rapid fire ended' : `${left} seconds remaining`
-                  }
-                >
-                  {ended ? '00:00' : now > 0 ? clockLabel(left) : '—'}
-                </div>
-                <p className="clock-caption">
-                  {ended
-                    ? 'Answers are available in the debrief. Results are preserved.'
-                    : 'JOINING WINDOW · STARTED ATTEMPTS KEEP THEIR QUESTION TIMERS'}
-                </p>
+                {!ended && (
+                  <>
+                    <div
+                      className="release-clock"
+                      role="timer"
+                      aria-label={`${left} seconds until automatic close`}
+                    >
+                      {now > 0 ? clockLabel(left) : '—'}
+                    </div>
+                    <p className="clock-caption">
+                      TIME UNTIL AUTOMATIC CLOSE · END EARLY WHEN THE CLASS IS
+                      DONE
+                    </p>
+                  </>
+                )}
                 <dl className="release-settings">
                   <div>
-                    <dt>Questions released</dt>
-                    <dd>{release!.question_count}</dd>
+                    <dt>Questions per round</dt>
+                    <dd>{config!.question_count}</dd>
                   </div>
                   <div>
                     <dt>Seconds per question</dt>
-                    <dd>{release!.seconds_per_question}</dd>
+                    <dd>{config!.seconds_per_question}</dd>
                   </div>
-                  <div>
-                    <dt>Nominal answering duration</dt>
-                    <dd>{durationLabel(release!.duration_seconds)}</dd>
-                  </div>
+                  {!isPreview && (
+                    <>
+                      <div>
+                        <dt>Students joined</dt>
+                        <dd>{connected!.students_joined}</dd>
+                      </div>
+                      <div>
+                        <dt>Finished all rounds</dt>
+                        <dd>
+                          {connected!.students_done} /{' '}
+                          {connected!.students_joined}
+                        </dd>
+                      </div>
+                    </>
+                  )}
                 </dl>
-                {!isPreview && !ended && connected?.session?.code && (
+                {!isPreview && !ended && code && (
                   <div className="join-share">
                     <span className="field-label">
                       Share this link with students
                     </span>
                     <code className="join-link">
-                      {window.location.origin}/?j={connected.session.code}
+                      {window.location.origin}/?j={code}
                     </code>
                     <p className="clock-caption">
-                      They sign in and join this round. Code:{' '}
-                      {connected.session.code}
+                      They sign in and join. Code: {code}
                     </p>
                   </div>
                 )}
@@ -396,14 +391,15 @@ export function Instructor() {
                   <div className="approval-panel">
                     <h3>End for all students?</h3>
                     <p>
-                      Remaining questions will become timeouts. This release
-                      cannot be reopened.
+                      Every unanswered question becomes a timeout, final scores
+                      are recorded, and answers are revealed. This cannot be
+                      reopened.
                     </p>
                     <div className="approval-actions">
                       <button
                         className="end-button"
                         disabled={busy}
-                        onClick={() => void endRelease()}
+                        onClick={() => void endRun()}
                       >
                         {busy ? 'Ending…' : 'End for everyone'}
                       </button>
@@ -417,16 +413,6 @@ export function Instructor() {
                     </div>
                   </div>
                 )}
-                {ended &&
-                  pools.some(
-                    (pool) =>
-                      pool.id === release!.round_id + 1 &&
-                      pool.available_questions > 0,
-                  ) && (
-                    <button className="start-timer" onClick={prepareNextRound}>
-                      Configure next round →
-                    </button>
-                  )}
                 {ended && isPreview && (
                   <button className="plain-button" onClick={newPreview}>
                     New setup preview
@@ -434,7 +420,7 @@ export function Instructor() {
                 )}
                 {ended && (
                   <p className="closed-notice">
-                    This release cannot be restarted. Each student’s attempt
+                    This rapid fire cannot be restarted. Each student’s attempt
                     stays on record.
                   </p>
                 )}
@@ -445,21 +431,9 @@ export function Instructor() {
                   <h2 id="setup-title">Configure rapid fire</h2>
                   <span className="muted">01 / SETUP</span>
                 </div>
-                {/* Rounds run in sequence, so the round is never chosen — it
-                    is always the next one. Shown read-only, not as a picker. */}
-                <p className="field-label">Up next</p>
-                <div className="round-heading">
-                  <span>
-                    Round {roundId.toString().padStart(2, '0')} ·{' '}
-                    {selectedPool?.title ?? '—'}
-                  </span>
-                  <span className="muted">
-                    {roundId} of {pools.length}
-                  </span>
-                </div>
                 <div className="pool-count">
-                  <span>Total questions available</span>
-                  <strong>{selectedPool?.available_questions ?? 0}</strong>
+                  <span>Rounds in this rapid fire</span>
+                  <strong>{roundCount}</strong>
                 </div>
                 {!isPreview && !sessionId && (
                   <>
@@ -484,10 +458,7 @@ export function Instructor() {
                       id="question-count"
                       type="number"
                       min="1"
-                      max={Math.min(
-                        300,
-                        selectedPool?.available_questions ?? 0,
-                      )}
+                      max={Math.min(300, minAvailable)}
                       step="1"
                       value={questionCount}
                       disabled={review || busy}
@@ -495,9 +466,8 @@ export function Instructor() {
                       aria-describedby="count-help"
                     />
                     <p id="count-help">
-                      This round releases this many · out of{' '}
-                      {selectedPool?.available_questions ?? 0} available this
-                      round
+                      Applies to every round · up to {minAvailable} (the
+                      smallest lecture’s pool)
                     </p>
                   </div>
                   <div>
@@ -520,32 +490,32 @@ export function Instructor() {
                 </div>
                 <div className="duration-calculation" aria-live="polite">
                   <div>
-                    <span>NOMINAL ANSWERING DURATION</span>
+                    <span>PER-ROUND ANSWERING DURATION</span>
                     <strong>{valid ? durationLabel(duration) : '—'}</strong>
                   </div>
                   <p>
                     {valid
-                      ? `${count === 1 ? '1 question' : `${count} questions`} × ${allotted} seconds`
+                      ? `${count === 1 ? '1 question' : `${count} questions`} × ${allotted} seconds, across all ${roundCount} rounds`
                       : 'Enter valid settings to calculate the duration.'}
                   </p>
                 </div>
                 {review ? (
                   <div className="approval-panel">
-                    <h3>Ready to release?</h3>
+                    <h3>Ready to start?</h3>
                     <p>
-                      {count === 1 ? '1 question' : `${count} questions`} ·{' '}
-                      {allotted} seconds each · {durationLabel(duration)} of
-                      answering time. The joining window opens on approval. Each
-                      question starts its own timer when served; the instructor
-                      can end the release early.
+                      All {roundCount} rounds go live at once with{' '}
+                      {count === 1 ? '1 question' : `${count} questions`} each ·{' '}
+                      {allotted} seconds per question. Students flow through
+                      them at their own pace; you end the rapid fire when the
+                      class is done.
                     </p>
                     <div className="approval-actions">
                       <button
                         className="start-timer"
                         disabled={busy}
-                        onClick={() => void approve()}
+                        onClick={() => void start()}
                       >
-                        {busy ? 'Releasing…' : 'Approve & release'}
+                        {busy ? 'Starting…' : 'Approve & start'}
                       </button>
                       <button
                         className="plain-button"
@@ -569,32 +539,31 @@ export function Instructor() {
             )}
           </section>
           <aside className="release-summary">
-            <p className="eyebrow">RELEASE RULES</p>
+            <p className="eyebrow">HOW IT RUNS</p>
             <h2>
-              A fair start.
+              One start.
               <br />A definite finish.
             </h2>
             <ol>
               <li>
-                <strong>Approve before release</strong>
+                <strong>Configure once</strong>
                 <p>
-                  Review the question count and duration before the clock
-                  begins.
+                  Set questions-per-round and seconds-per-question. It applies
+                  to all {roundCount} rounds.
                 </p>
               </li>
               <li>
-                <strong>One student, one attempt</strong>
+                <strong>Students self-pace</strong>
                 <p>
-                  Returning to the release continues the same attempt. It never
-                  creates a second one.
+                  Each student flows through every round back to back, with no
+                  breaks and one attempt per round.
                 </p>
               </li>
               <li>
-                <strong>Automatic finish</strong>
+                <strong>Standings, then answers</strong>
                 <p>
-                  Each question expires separately. The release finishes after
-                  admission closes and started attempts complete. You can also
-                  end it early.
+                  A student sees the leaderboard once they finish; correct
+                  answers reveal only when you end the rapid fire.
                 </p>
               </li>
             </ol>
@@ -607,8 +576,8 @@ export function Instructor() {
       <footer>
         <span>Built for the DBMS lab.</span>
         <span>
-          Standings appear once a student submits; answers stay hidden until the
-          whole rapid fire ends.
+          Standings appear once a student finishes; answers stay hidden until
+          the whole rapid fire ends.
         </span>
       </footer>
     </main>

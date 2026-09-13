@@ -118,9 +118,9 @@ export function Play({ code }: { code: string }) {
     const apply = (payload: ReturnType<typeof parsePayload>) => {
       state.pending = undefined;
       if ('round_complete' in payload) {
+        // Round done: re-poll at once so the player's next round is served with
+        // no wait (self-paced auto-advance).
         state.question = null;
-        if (state.session)
-          state.session = { ...state.session, submitted: true };
         nextPoll = 0;
       } else {
         if (
@@ -168,22 +168,17 @@ export function Play({ code }: { code: string }) {
             throw new Error('Invalid session response.');
           const changed =
             state.session?.current_round !== session.current_round;
-          if (
-            changed ||
-            session.status === 'closed' ||
-            session.release_status !== 'live' ||
-            session.submitted
-          ) {
+          if (changed || session.status === 'closed' || session.done) {
             state.question = null;
             state.pending = undefined;
           }
           if (changed || session.status === 'closed') state.result = null;
           state.session = session;
           nextPoll = performance.now() + 2500;
-          // Standings unlock the moment this student has submitted, and stay
-          // live afterwards; re-fetching each poll keeps them current as other
-          // students finish. Solutions remain sealed until the session closes.
-          if (session.submitted || session.status === 'closed') {
+          // Standings unlock once this player has finished every round (done),
+          // and stay live afterwards as classmates finish; re-fetching each poll
+          // keeps them current. Solutions remain sealed until the session closes.
+          if (session.done || session.status === 'closed') {
             const board = await studentRpc(
               'session_leaderboard',
               { p_session: sessionId },
@@ -194,13 +189,6 @@ export function Play({ code }: { code: string }) {
           } else if (state.leaderboard) {
             state.leaderboard = null;
           }
-          if (
-            session.release_status === 'ended' &&
-            session.current_round &&
-            session.results.includes(session.current_round) &&
-            state.result?.round_id !== session.current_round
-          )
-            wantedResult = session.current_round;
           publish();
         }
         if (
@@ -225,11 +213,11 @@ export function Play({ code }: { code: string }) {
           apply(payload);
         } else if (
           !state.question &&
-          state.session?.status === 'live' &&
-          state.session.release_status === 'live' &&
-          state.session.can_start &&
-          !state.session.submitted
+          state.session?.can_start &&
+          state.session.current_round !== null
         ) {
+          // Self-paced: keep serving the player's own current round, advancing
+          // to the next one automatically as each completes.
           const payload = await studentRpc(
             'start_round',
             { p_session: sessionId, p_round: state.session.current_round },
@@ -484,24 +472,19 @@ export function Play({ code }: { code: string }) {
           <div className="question-card">
             <h1>
               {session?.status === 'closed'
-                ? 'This session has ended.'
-                : session?.submitted
-                  ? 'Submission received.'
-                  : session?.release_status === 'ended'
-                    ? 'This round has ended.'
-                    : session?.can_start === false &&
-                        session?.release_status === 'live'
-                      ? 'The joining window has closed.'
-                      : session
-                        ? 'You’re in.'
-                        : 'Joining the rapid fire…'}
+                ? 'The rapid fire has ended.'
+                : session?.done
+                  ? 'You finished the rapid fire.'
+                  : session
+                    ? 'Loading your next question…'
+                    : 'Joining the rapid fire…'}
             </h1>
             <p role="status">
               {session?.status === 'closed'
-                ? 'The rapid fire is over. Correct answers are revealed below.'
-                : session?.submitted
-                  ? 'Your standings are live below. Correct answers reveal once the whole rapid fire ends.'
-                  : 'Your instructor controls when the next round begins.'}
+                ? 'Correct answers are revealed below.'
+                : session?.done
+                  ? 'Your standings are live below. Correct answers reveal once everyone’s time is up.'
+                  : 'Hang tight — your next question is on its way.'}
             </p>
           </div>
         )}
@@ -515,7 +498,7 @@ export function Play({ code }: { code: string }) {
           </nav>
         )}
         {!q &&
-          (session?.submitted || session?.status === 'closed') &&
+          (session?.done || session?.status === 'closed') &&
           activeView.leaderboard && (
             <section className="leaderboard" aria-label="Leaderboard">
               <div className="round-label">

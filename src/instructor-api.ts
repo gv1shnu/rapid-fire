@@ -24,17 +24,24 @@ export type Release = {
   submitted_students?: number;
   admission_closes_at?: string | null;
 };
+export type Config = {
+  question_count: number;
+  seconds_per_question: number;
+  duration_seconds: number;
+};
 export type InstructorState = {
   rounds: RoundPool[];
+  min_available: number;
   sections: string[];
   session: {
     id: string;
     code: string;
-    current_round: number | null;
     status: string;
     closes_at: string;
   } | null;
-  release: Release | null;
+  config: Config | null;
+  students_joined: number;
+  students_done: number;
   server_now: string;
 };
 

@@ -95,12 +95,17 @@ beforeEach(async () => {
     ['text', 'timestamptz'],
   );
   session = opened.session_id;
+  // One config for the whole sitting; all 9 rounds go live at once.
+  await rpc(
+    'start_rapid_fire',
+    [session, 5, 12],
+    ['uuid', 'smallint', 'smallint'],
+  );
   await identity(player);
   await rpc('join_session', [opened.code, 'Explorer', 'seed']);
-  await identity(host);
-  await rpc('go_live', [session, 1], ['uuid', 'smallint']);
-  await identity(player);
 });
+// The single count applies to every round, so it is capped at the smallest
+// lecture pool (9). Callers must pass count <= 9.
 async function configuredRelease(count: number, seconds: number) {
   await identity(host);
   const opened = await rpc(
@@ -110,15 +115,27 @@ async function configuredRelease(count: number, seconds: number) {
   );
   session = opened.session_id;
   await rpc(
-    'configure_round',
-    [session, 1, count, seconds],
-    ['uuid', 'smallint', 'smallint', 'smallint'],
+    'start_rapid_fire',
+    [session, count, seconds],
+    ['uuid', 'smallint', 'smallint'],
   );
   await identity(player);
   await rpc('join_session', [opened.code, 'Explorer', 'seed']);
-  await identity(host);
-  await rpc('go_live', [session, 1], ['uuid', 'smallint']);
+}
+// Self-paced: play a whole round for `player` with correct (or wrong) answers
+// and submit it. No instructor handoff.
+async function completeRound(r: number, correct = true) {
   await identity(player);
+  await rpc('start_round', [session, r], ['uuid', 'smallint']);
+  await admin(
+    `update public.attempts a set served_at=clock_timestamp(),answered_at=clock_timestamp(),
+     option_id=(select (o->>'id')::bigint from public.release_questions q cross join lateral jsonb_array_elements(q.snapshot->'options') o
+       where q.session_id=a.session_id and q.round_id=a.round_id and q.question_id=a.question_id and (o->>'is_correct')::boolean=$1 limit 1)
+     where a.session_id=$2 and a.player_id=$3 and a.round_id=$4`,
+    [correct, session, player, r],
+  );
+  await identity(player);
+  await rpc('submit_round', [session, r], ['uuid', 'smallint']);
 }
 async function choose(seq: number, token: string | null) {
   return rpc(
@@ -168,22 +185,15 @@ describe('production PostgreSQL protocol', () => {
       ).rows.map((r) => r.domain),
     ).toEqual(['students.example.edu', 'example.edu']);
   });
-  it('draws the specified 30-question difficulty legs without duplicates', async () => {
+  it('draws exactly the configured question count and serves one at a time', async () => {
     noKey(await round('start_round'));
     const { rows } = await admin(
-      'select a.seq,q.difficulty,a.served_at from public.attempts a join public.questions q on q.id=a.question_id order by seq',
+      'select a.seq,a.served_at from public.attempts a order by seq',
     );
-    expect(rows).toHaveLength(30);
-    expect(rows.slice(0, 10).every((r) => r.difficulty === 'easy')).toBe(true);
-    expect(rows.slice(10, 20).every((r) => r.difficulty === 'medium')).toBe(
-      true,
-    );
-    expect(rows.slice(20).filter((r) => r.difficulty === 'hard')).toHaveLength(
-      6,
-    );
+    expect(rows).toHaveLength(5);
     expect(rows.filter((r) => r.served_at)).toHaveLength(1);
   });
-  it.each([1, 4, 30, 40, 45])(
+  it.each([1, 4, 9])(
     'freezes the same %i-question set for every student',
     async (count) => {
       await configuredRelease(count, 12);
@@ -258,8 +268,8 @@ describe('production PostgreSQL protocol', () => {
       [q],
     );
     await identity(player);
-    expect((await round('next_question')).served_at).toBe(first.served_at);
-    const resumed = await round('next_question');
+    const resumed = await round('start_round');
+    expect(resumed.served_at).toBe(first.served_at);
     expect(resumed).toHaveProperty('stem', old.stem);
     const d = await finishAndRead();
     expect(d.questions[0]).toHaveProperty('stem', old.stem);
@@ -311,13 +321,16 @@ describe('production PostgreSQL protocol', () => {
       Date.parse(next.deadline) - Date.parse(next.server_now),
     ).toBeGreaterThan(9900);
   });
-  it('uses nominal duration for admission and the explicit sitting cutoff for termination', async () => {
-    await configuredRelease(40, 20);
+  it('opens all nine rounds live for the whole sitting, bounded by the session cutoff', async () => {
+    await configuredRelease(5, 20);
     const { rows } = await admin(
-      'select extract(epoch from admission_closes_at-r.started_at)::int duration,r.closes_at=s.closes_at hard_end from public.round_releases r join public.sessions s on s.id=r.session_id where s.id=$1',
+      'select r.round_id,r.admission_closes_at=s.closes_at admit,r.closes_at=s.closes_at hard_end,r.status from public.round_releases r join public.sessions s on s.id=r.session_id where s.id=$1 order by r.round_id',
       [session],
     );
-    expect(rows[0]).toEqual({ duration: 800, hard_end: true });
+    expect(rows).toHaveLength(9);
+    expect(
+      rows.every((x) => x.admit && x.hard_end && x.status === 'live'),
+    ).toBe(true);
   });
   it('rejects a new attempt after admission closes but permits resume', async () => {
     await round('start_round');
@@ -383,30 +396,18 @@ describe('production PostgreSQL protocol', () => {
     expect(d.total_points).toBeGreaterThan(470);
     expect(d.questions).toHaveLength(3);
   });
-  it('seals solutions through advancement and recovers them once the session ends', async () => {
+  it('lets a student self-pace round to round with no host action, solutions sealed until the end', async () => {
     await configuredRelease(1, 12);
-    await round('start_round');
-    await choose(1, await ownToken(1));
+    await completeRound(1);
+    await expect(round('my_result')).rejects.toThrow('debrief_not_released');
+    // A finished round just returns complete; walk straight into round 2 with
+    // no instructor handoff; you cannot skip past an unfinished round.
     expect((await round('start_round')).round_complete).toBe(true);
-    // Submitting locks the round in, but solutions stay sealed mid-fire.
-    expect(await round('submit_round')).toEqual({
-      submitted: true,
-      round_id: 1,
-    });
+    await rpc('start_round', [session, 2], ['uuid', 'smallint']);
+    await expect(
+      rpc('start_round', [session, 4], ['uuid', 'smallint']),
+    ).rejects.toThrow('round_out_of_order');
     await expect(round('my_result')).rejects.toThrow('debrief_not_released');
-    // Advance to round 2; round 1 is finished and cannot be replayed. Ending
-    // round 1's release is required to advance but still reveals no solutions.
-    await identity(host);
-    await rpc('end_round', [session, 1], ['uuid', 'smallint']);
-    await rpc(
-      'configure_round',
-      [session, 2, 2, 12],
-      ['uuid', 'smallint', 'smallint', 'smallint'],
-    );
-    await rpc('go_live', [session, 2], ['uuid', 'smallint']);
-    await identity(player);
-    await expect(round('my_result')).rejects.toThrow('debrief_not_released');
-    await expect(round('start_round')).rejects.toThrow('round_ended');
     // Only when the whole rapid fire ends is the round 1 debrief recoverable.
     await identity(host);
     await rpc('end_session', [session], ['uuid']);
@@ -416,17 +417,15 @@ describe('production PostgreSQL protocol', () => {
     expect(d.questions[0]).toHaveProperty('stem');
     expect(d.questions[0]).toHaveProperty('options');
   });
-  it('reveals the leaderboard by real name the moment a student submits, before the session closes', async () => {
+  it('reveals the leaderboard by real name only once a player has finished every round', async () => {
     await configuredRelease(1, 12);
-    await round('start_round');
-    // Started but not yet finished: standings are sealed.
+    await completeRound(1);
+    // One round done is not the whole rapid fire: standings stay sealed.
     await expect(
       rpc('session_leaderboard', [session], ['uuid']),
     ).rejects.toThrow('leaderboard_not_released');
-    await choose(1, await ownToken(1));
-    expect((await round('start_round')).round_complete).toBe(true);
-    // Completing every question submits the run -- standings unlock at once,
-    // with the session still open.
+    for (let r = 2; r <= 9; r++) await completeRound(r);
+    // Finished all nine: standings unlock, session still open.
     const board = await rpc<
       { rank: number; name: string; points: number; is_me: boolean }[]
     >('session_leaderboard', [session], ['uuid']);
@@ -451,7 +450,11 @@ describe('production PostgreSQL protocol', () => {
       ['A', new Date(Date.now() + 600000).toISOString()],
       ['text', 'timestamptz'],
     );
-    await rpc('go_live', [other.session_id, 1], ['uuid', 'smallint']);
+    await rpc(
+      'start_rapid_fire',
+      [other.session_id, 1, 12],
+      ['uuid', 'smallint', 'smallint'],
+    );
     await identity(player);
     for (const fn of ['start_round', 'my_result', 'submit_round'])
       await expect(
@@ -591,22 +594,21 @@ describe('production PostgreSQL protocol', () => {
       ).error.http_code,
     ).toBe(403);
   });
-  it('permits only the owner to configure, release, end and report', async () => {
-    for (const fn of ['go_live', 'end_round', 'round_report'])
-      await expect(round(fn)).rejects.toThrow('host_only');
+  it('permits only the owner to start, end and report', async () => {
+    await expect(round('round_report')).rejects.toThrow('host_only');
     await expect(rpc('end_session', [session], ['uuid'])).rejects.toThrow(
       'host_only',
     );
     await expect(rpc('instructor_state', [session], ['uuid'])).rejects.toThrow(
       'host_only',
     );
-    await identity(host);
     await expect(
-      rpc('go_live', [session, 3], ['uuid', 'smallint']),
-    ).rejects.toThrow('round_out_of_order');
-    await expect(
-      rpc('go_live', [session, 2], ['uuid', 'smallint']),
-    ).rejects.toThrow('end_previous_round_first');
+      rpc(
+        'start_rapid_fire',
+        [session, 1, 12],
+        ['uuid', 'smallint', 'smallint'],
+      ),
+    ).rejects.toThrow('host_only');
   });
   it('revokes instructor access immediately when the email allowlist changes', async () => {
     await admin(
@@ -621,7 +623,7 @@ describe('production PostgreSQL protocol', () => {
     );
   });
   it('scores exact speed/streaks with no extra second and no negative points', async () => {
-    await configuredRelease(10, 12);
+    await configuredRelease(9, 12);
     await round('start_round');
     await fillAnswers();
     await admin(
@@ -636,7 +638,7 @@ describe('production PostgreSQL protocol', () => {
     await round('submit_round');
     const d = await finishAndRead();
     expect(d.questions.map((q) => q.points)).toEqual([
-      125, 125, 150, 150, 150, 188, 0, 125, 0, 125,
+      125, 125, 150, 150, 150, 188, 0, 125, 0,
     ]);
   });
   it('logs accurate per-student and aggregate metrics with a strict halfway boundary', async () => {
@@ -690,25 +692,21 @@ describe('production PostgreSQL protocol', () => {
       under_half_count: 4,
     });
   });
-  it('finalizes partial attempts on round end but seals solutions until the session closes', async () => {
+  it('finalizes a partial run at session end and seals solutions until then', async () => {
     await configuredRelease(3, 20);
     await round('start_round');
     await choose(1, await ownToken(1));
-    await identity(host);
-    await rpc('end_round', [session, 1], ['uuid', 'smallint']);
-    await identity(player);
-    // Finalized, yet no solutions while the rapid fire is still live.
+    // Mid-round, session still live: no solutions.
     await expect(round('my_result')).rejects.toThrow('debrief_not_released');
-    await expect(choose(2, null)).rejects.toThrow('round_ended');
-    const r = await admin(
-      'select correct_count,timeout_count from public.round_runs where session_id=$1',
-      [session],
-    );
-    expect(r.rows[0]).toEqual({ correct_count: 1, timeout_count: 2 });
-    // Ending the session scores exactly once and unlocks the debrief.
+    // Ending the session force-finalizes the partial run exactly once.
     await identity(host);
     await rpc('end_session', [session], ['uuid']);
     await identity(player);
+    const r = await admin(
+      'select correct_count,timeout_count from public.round_runs where session_id=$1 and round_id=1',
+      [session],
+    );
+    expect(r.rows[0]).toEqual({ correct_count: 1, timeout_count: 2 });
     const d = await round('my_result');
     expect(d.total_points).toBeGreaterThan(0);
     expect(d.questions).toHaveLength(3);
@@ -726,64 +724,48 @@ describe('production PostgreSQL protocol', () => {
     expect((await round('my_result')).total_points).toBe(0);
     await expect(round('start_round')).rejects.toThrow('session_closed');
   });
-  it('automatically ends a release when admission has closed and every started run finishes', async () => {
-    await configuredRelease(1, 12);
-    await round('start_round');
-    await choose(1, await ownToken(1));
-    await admin(
-      "update public.round_releases set admission_closes_at=clock_timestamp()-interval '1 second' where session_id=$1",
-      [session],
-    );
-    await identity(player);
-    expect(await rpc('student_state', [session], ['uuid'])).toHaveProperty(
-      'release_status',
-      'ended',
-    );
-    // The round's release ended, but the rapid fire has not: solutions sealed.
-    await expect(round('my_result')).rejects.toThrow('debrief_not_released');
+  it('reports one shared config and student progress to the host', async () => {
+    await completeRound(1);
     await identity(host);
-    await rpc('end_session', [session], ['uuid']);
-    await identity(player);
-    expect((await round('my_result')).total_points).toBeGreaterThan(0);
+    const st = (await rpc(
+      'instructor_state',
+      [session],
+      ['uuid'],
+    )) as unknown as {
+      config: { question_count: number; seconds_per_question: number };
+      students_joined: number;
+      students_done: number;
+      min_available: number;
+    };
+    expect(st.config).toMatchObject({
+      question_count: 5,
+      seconds_per_question: 12,
+    });
+    expect(st.students_joined).toBe(1);
+    expect(st.students_done).toBe(0);
+    expect(st.min_available).toBe(9);
   });
-  it('checks count, seconds, session window and immutable release configuration', async () => {
+  it('validates the single configuration and refuses to start twice', async () => {
     await identity(host);
     const opened = await rpc(
       'open_session',
-      ['A', new Date(Date.now() + 75000).toISOString()],
+      ['A', new Date(Date.now() + 75 * 60000).toISOString()],
       ['text', 'timestamptz'],
     );
-    for (const count of [0, 46])
-      await expect(
-        rpc(
-          'configure_round',
-          [opened.session_id, 1, count, 12],
-          ['uuid', 'smallint', 'smallint', 'smallint'],
-        ),
-      ).rejects.toThrow('invalid_question_count');
-    for (const seconds of [0, 121])
-      await expect(
-        rpc(
-          'configure_round',
-          [opened.session_id, 1, 1, seconds],
-          ['uuid', 'smallint', 'smallint', 'smallint'],
-        ),
-      ).rejects.toThrow('invalid_question_seconds');
-    await rpc(
-      'configure_round',
-      [opened.session_id, 1, 10, 20],
-      ['uuid', 'smallint', 'smallint', 'smallint'],
-    );
-    await expect(
-      rpc('go_live', [opened.session_id, 1], ['uuid', 'smallint']),
-    ).rejects.toThrow('release_exceeds_session_window');
-    await expect(
+    const start = (count: number, seconds: number) =>
       rpc(
-        'configure_round',
-        [session, 1, 1, 12],
-        ['uuid', 'smallint', 'smallint', 'smallint'],
-      ),
-    ).rejects.toThrow('round_out_of_order');
+        'start_rapid_fire',
+        [opened.session_id, count, seconds],
+        ['uuid', 'smallint', 'smallint'],
+      );
+    for (const count of [0, 301])
+      await expect(start(count, 12)).rejects.toThrow('invalid_question_count');
+    for (const seconds of [0, 121])
+      await expect(start(1, seconds)).rejects.toThrow('invalid_seconds');
+    // One count must fit every round; the smallest lecture pool (9) caps it.
+    await expect(start(10, 12)).rejects.toThrow('insufficient_question_pool');
+    await start(1, 12);
+    await expect(start(1, 12)).rejects.toThrow('already_started');
   });
   it('enforces nonnegative scores and complete MCQ shape at the database layer', async () => {
     await round('start_round');
