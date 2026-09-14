@@ -199,9 +199,9 @@ export function Instructor() {
             'open_session',
             {
               p_section: section,
-              p_closes_at: new Date(
-                Date.now() + 3 * 60 * 60 * 1000,
-              ).toISOString(),
+              // Safety cap: the session auto-closes an hour after opening. The
+              // instructor normally ends it early once the class is done.
+              p_closes_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             },
           );
           id = opened.session_id;

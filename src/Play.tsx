@@ -581,6 +581,14 @@ export function Play({ code }: { code: string }) {
               )}
             </section>
           )}
+        {!q && (session?.done || session?.status === 'closed') && (
+          <a
+            className="practice-cta"
+            href="https://github.com/gv1shnu/treasure-hunt"
+          >
+            More coding practice on the basics → Dilli Khoj ↗
+          </a>
+        )}
       </section>
       <footer>
         <span>One attempt per student, per round.</span>
