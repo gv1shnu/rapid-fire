@@ -229,6 +229,9 @@ export function QuestionPreview() {
       <footer>
         <span>One answer. One step forward.</span>
         <span>No hints. No scores. Just the next step.</span>
+        <a className="credit" href="https://vishnugandarapu.in">
+          Built by Vishnu Gandarapu
+        </a>
       </footer>
     </main>
   );

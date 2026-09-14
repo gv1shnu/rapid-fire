@@ -743,6 +743,9 @@ export function Instructor() {
           Standings appear once a student finishes; answers stay hidden until
           the whole rapid fire ends.
         </span>
+        <a className="credit" href="https://vishnugandarapu.in">
+          Built by Vishnu Gandarapu
+        </a>
       </footer>
     </main>
   );

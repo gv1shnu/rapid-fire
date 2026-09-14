@@ -596,6 +596,9 @@ export function Play({ code }: { code: string }) {
           <a href="/privacy.html">Privacy policy</a> ·{' '}
           <a href="/terms.html">Terms of service</a>
         </span>
+        <a className="credit" href="https://vishnugandarapu.in">
+          Built by Vishnu Gandarapu
+        </a>
       </footer>
     </main>
   );
