@@ -152,7 +152,7 @@ export function Home() {
           <a href="/terms.html">Terms of service</a>
         </span>
         <a className="credit" href="https://vishnugandarapu.in">
-          Built by Vishnu Gandarapu ↗
+          Built by Vishnu Gandarapu
         </a>
       </footer>
     </main>
