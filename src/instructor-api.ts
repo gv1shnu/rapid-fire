@@ -45,6 +45,18 @@ export type InstructorState = {
   students_done: number;
   server_now: string;
 };
+export type InstructorSession = {
+  id: string;
+  code: string;
+  section: string;
+  status: 'lobby' | 'live' | 'closed';
+  started_at: string | null;
+  closes_at: string | null;
+  question_count: number | null;
+  seconds_per_question: number | null;
+  students_joined: number;
+  students_done: number;
+};
 
 // A token minted at sign-in carries an `iat` from the auth server, but the
 // database validates it against its own clock, which can lag a second or two
@@ -195,6 +207,28 @@ function reportMetrics(x: Record<string, unknown>) {
     number(x.average_answer_seconds) &&
     percent(x.accuracy_percent)
   );
+}
+export function parseInstructorSessions(x: unknown): InstructorSession[] {
+  const timestamp = (v: unknown) => v === null || typeof v === 'string';
+  if (
+    !Array.isArray(x) ||
+    !x.every(
+      (r) =>
+        record(r) &&
+        uuid(r.id) &&
+        typeof r.code === 'string' &&
+        typeof r.section === 'string' &&
+        ['lobby', 'live', 'closed'].includes(String(r.status)) &&
+        timestamp(r.started_at) &&
+        timestamp(r.closes_at) &&
+        (r.question_count === null || positive(r.question_count)) &&
+        (r.seconds_per_question === null || positive(r.seconds_per_question)) &&
+        integer(r.students_joined) &&
+        integer(r.students_done),
+    )
+  )
+    throw new Error('Invalid session list. Please reconnect.');
+  return x as InstructorSession[];
 }
 export function parseSessionReport(x: unknown): SessionReport {
   if (

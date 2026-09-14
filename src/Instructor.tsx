@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { InstructorReports } from './InstructorReports';
 import {
   instructorRpc,
+  parseInstructorSessions,
   previewPools,
   supabase,
+  type InstructorSession,
   type InstructorState,
 } from './instructor-api';
 
@@ -54,10 +56,22 @@ function clockLabel(seconds: number) {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
+function sessionDate(iso: string | null) {
+  const at = iso ? new Date(iso) : null;
+  return at && Number.isFinite(at.getTime())
+    ? at.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : '—';
+}
 
 export function Instructor() {
   const isPreview = !supabase;
   const [connected, setConnected] = useState<InstructorState | null>(null);
+  const [sessions, setSessions] = useState<InstructorSession[]>([]);
   const [authenticated, setAuthenticated] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewSession | null>(loadPreview);
   const [questionCount, setQuestionCount] = useState('5');
@@ -164,6 +178,23 @@ export function Instructor() {
     };
   }, [isPreview, authenticated, sessionId]);
 
+  // Every rapid fire this instructor has run, newest first, so past sessions
+  // and their reports stay reachable after the tab forgets the active one.
+  useEffect(() => {
+    if (isPreview || !authenticated) return;
+    let active = true;
+    instructorRpc<unknown>('instructor_sessions')
+      .then((data) => {
+        if (active) setSessions(parseInstructorSessions(data));
+      })
+      .catch(() => {
+        // Non-fatal: the main state fetch surfaces any connection error.
+      });
+    return () => {
+      active = false;
+    };
+  }, [isPreview, authenticated, sessionId]);
+
   async function signIn() {
     const { error: authError } = await supabase!.auth.signInWithOAuth({
       provider: 'google',
@@ -267,6 +298,37 @@ export function Instructor() {
     setConfirmEnd(false);
   }
 
+  // Open a past rapid fire: the state effect reloads it (and its report) by id.
+  function viewSession(id: string) {
+    if (id === sessionId) return;
+    setReview(false);
+    setConfirmEnd(false);
+    setError('');
+    setSessionId(id);
+    try {
+      sessionStorage.setItem('lost-schema-host-session', id);
+    } catch {
+      // Private mode: navigation still works for this tab.
+    }
+  }
+
+  // Leave the current session and return to the setup screen for a new one.
+  function newSession() {
+    setReview(false);
+    setConfirmEnd(false);
+    setError('');
+    setSection('');
+    setConnected((prev) =>
+      prev ? { ...prev, session: null, config: null } : prev,
+    );
+    setSessionId(null);
+    try {
+      sessionStorage.removeItem('lost-schema-host-session');
+    } catch {
+      // Nothing stored to clear.
+    }
+  }
+
   return (
     <main className="instructor-page">
       <header>
@@ -285,7 +347,7 @@ export function Instructor() {
           </p>
         </div>
         <a className="subtle-link" href="/?preview=question">
-          View a sample question ↗
+          View a sample question
         </a>
       </div>
       {isPreview && (
@@ -435,6 +497,11 @@ export function Instructor() {
                     This rapid fire cannot be restarted. Each student’s attempt
                     stays on record.
                   </p>
+                )}
+                {ended && !isPreview && (
+                  <button className="plain-button" onClick={newSession}>
+                    Start a new rapid fire
+                  </button>
                 )}
               </>
             ) : (
@@ -614,6 +681,60 @@ export function Instructor() {
                 />
               )
             ))}
+          {!isPreview && sessions.length > 0 && (
+            <section className="session-history" aria-label="Past rapid fires">
+              <div className="panel-heading">
+                <h2>Past rapid fires</h2>
+                <span className="muted">
+                  {sessions.length === 1
+                    ? '1 session'
+                    : `${sessions.length} sessions`}
+                </span>
+              </div>
+              <ul>
+                {sessions.map((item) => {
+                  const active = item.id === connected?.session?.id;
+                  return (
+                    <li key={item.id} className={active ? 'active' : undefined}>
+                      <div className="session-meta">
+                        <span className="session-when">
+                          {sessionDate(item.started_at)}
+                        </span>
+                        <span className="session-section">{item.section}</span>
+                        <span
+                          className={`release-pill ${item.status === 'closed' ? 'ended' : ''}`}
+                        >
+                          {item.status === 'closed' ? 'ENDED' : 'LIVE'}
+                        </span>
+                      </div>
+                      <div className="session-stats">
+                        <span>
+                          {item.students_done}/{item.students_joined} finished
+                        </span>
+                        {item.question_count != null && (
+                          <span>
+                            {item.question_count}×{item.seconds_per_question}s
+                          </span>
+                        )}
+                        <span className="session-code">{item.code}</span>
+                      </div>
+                      <button
+                        className="plain-button"
+                        disabled={active}
+                        onClick={() => viewSession(item.id)}
+                      >
+                        {active
+                          ? 'Viewing'
+                          : item.status === 'closed'
+                            ? 'View report'
+                            : 'Open'}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
         </div>
       )}
       <footer>

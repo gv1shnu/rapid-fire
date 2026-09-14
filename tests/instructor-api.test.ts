@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   instructorRpc,
   isClockSkewError,
+  parseInstructorSessions,
   previewPools,
   supabase,
 } from '../src/instructor-api';
@@ -56,5 +57,43 @@ describe('instructor-api preview catalogue', () => {
     ]) {
       expect(isClockSkewError(message)).toBe(false);
     }
+  });
+
+  it('parses a past-sessions list and allows null config on drafts', () => {
+    const rows = [
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        code: 'ABCDEF',
+        section: 'Section A',
+        status: 'closed',
+        started_at: '2026-09-13T10:00:00Z',
+        closes_at: '2026-09-13T11:00:00Z',
+        question_count: 5,
+        seconds_per_question: 12,
+        students_joined: 20,
+        students_done: 18,
+      },
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        code: 'GHIJKL',
+        section: 'Section B',
+        status: 'live',
+        started_at: '2026-09-13T12:00:00Z',
+        closes_at: null,
+        question_count: null,
+        seconds_per_question: null,
+        students_joined: 0,
+        students_done: 0,
+      },
+    ];
+    expect(parseInstructorSessions(rows)).toHaveLength(2);
+    expect(parseInstructorSessions([])).toEqual([]);
+  });
+
+  it('rejects a malformed past-sessions list', () => {
+    expect(() =>
+      parseInstructorSessions([{ id: 'not-a-uuid', code: 'ABCDEF' }]),
+    ).toThrow(/session list/i);
+    expect(() => parseInstructorSessions({})).toThrow(/session list/i);
   });
 });

@@ -842,6 +842,60 @@ aside.release-summary {
   border-left: 2px solid #a58d64;
   padding-left: 16px;
 }
+.session-history {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border: 1px solid #3b4b40;
+  padding: 24px 30px;
+  border-radius: 12px;
+  background: #19261f;
+}
+.session-history ul {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.session-history li {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid #2c3a30;
+  border-radius: 10px;
+  background: #14201a;
+}
+.session-history li.active {
+  border-color: #c9a24a;
+}
+.session-meta,
+.session-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.session-stats {
+  margin-left: auto;
+  color: #9fb0a2;
+  font-size: 0.85rem;
+}
+.session-when {
+  font-weight: 600;
+}
+.session-section {
+  color: #9fb0a2;
+}
+.session-code {
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.05em;
+}
+.session-history li button {
+  flex-shrink: 0;
+}
 .form-error {
   background: #492d27;
   border: 1px solid #90604d;
