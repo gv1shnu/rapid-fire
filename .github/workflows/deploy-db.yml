@@ -1,18 +1,12 @@
 name: Deploy database
-# Applies any pending Supabase migrations to the hosted project whenever a
-# migration lands on main. The frontend already auto-deploys via Cloudflare
-# Pages; this closes the loop so the database schema ships from main too.
+# Applies any pending Supabase migrations to your hosted project. Manual only:
+# run it from the Actions tab after configuring the secret below.
 #
 # It connects straight to the database with a connection string (--db-url), so
 # it needs no Supabase personal access token — nothing here expires. The single
 # secret SUPABASE_DB_URL holds the "Session pooler" URI from the dashboard
 # (Connect -> Session pooler), which includes the database password.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'supabase/migrations/**'
-      - '.github/workflows/deploy-db.yml'
   workflow_dispatch: {}
 permissions:
   contents: read

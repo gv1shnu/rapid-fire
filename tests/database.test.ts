@@ -273,7 +273,7 @@ describe('production PostgreSQL protocol', () => {
       (
         await admin('select domain from public.allowed_domains order by domain')
       ).rows.map((r) => r.domain),
-    ).toEqual(['students.example.edu', 'example.edu']);
+    ).toEqual(['example.edu', 'students.example.edu']);
   });
   it('draws exactly the configured question count and serves one at a time', async () => {
     noKey(await round('start_round'));
@@ -565,11 +565,7 @@ describe('production PostgreSQL protocol', () => {
     await rpc('join_session', [other.code, 'Explorer', 'seed']);
     expect((await round('start_round')).seq).toBe(1);
   });
-  it.each([
-    'partner.example',
-    'evilexample.edu',
-    'example.edu.attacker.test',
-  ])(
+  it.each(['partner.example', 'evilexample.edu', 'example.edu.attacker.test'])(
     'rejects unapproved domain %s on all student entry points',
     async (domain) => {
       await admin('update auth.users set email=$1 where id=$2', [

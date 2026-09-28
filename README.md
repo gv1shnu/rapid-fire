@@ -2,6 +2,8 @@
 
 A timed SQL assessment for the university DBMS lab. Instructors approve a question count and seconds per question, release a shared question set, and review each student's results after closure. Students join with a college Google account and get one resumable attempt per round.
 
+![The Lost Schema — a timed question in progress](docs/screenshot.png)
+
 Only `example.edu` and `students.example.edu` are accepted. Google Spaces distribution is planned; the instructor currently copies the join URL manually.
 
 ## Objective and current behavior
@@ -126,4 +128,7 @@ Also set the two public Supabase variables. This explicit check fails if legal c
 - Round-specific stories, visual themes, and the expedition trail.
 - Realtime notifications to replace periodic status polling.
 - Deployment-specific monitoring, campus load rehearsals and retention automation.
-Current timing and security behavior above supersedes its earlier fixed/shared timing assumptions.
+
+## License
+
+Released under the [MIT License](LICENSE).
