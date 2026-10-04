@@ -2,13 +2,32 @@ import { useEffect, useState } from 'react';
 import { InstructorReports } from './InstructorReports';
 import {
   instructorRpc,
+  parseDraftReview,
   parseInstructorSessions,
   previewPools,
   supabase,
+  type DraftReview,
   type InstructorSession,
   type InstructorState,
 } from './instructor-api';
 import { appPath, appUrl } from './paths';
+import { QuestionReview, type QuestionEdit } from './QuestionReview';
+
+const errorMessages: Record<string, string> = {
+  host_only: 'This account is not an authorized instructor for this session.',
+  no_replacement:
+    'Every question in that lecture is already in this rapid fire, so there is nothing to swap in.',
+  already_started:
+    'This rapid fire has already started, so its questions are locked.',
+  session_closed:
+    'This session has closed. Start a new rapid fire to draw questions again.',
+  insufficient_question_pool:
+    'One of the lectures does not have enough questions for that count.',
+  invalid_stem: 'The question needs between 1 and 500 characters.',
+  invalid_explanation: 'The explanation needs between 1 and 1000 characters.',
+  invalid_option_text: 'Each option needs between 1 and 300 characters.',
+  invalid_correct_option: 'Choose which option is correct.',
+};
 
 const storageKey = 'lost-schema-instructor-preview';
 type PreviewSession = {
@@ -80,6 +99,7 @@ export function Instructor() {
   const [tempters, setTempters] = useState(true);
   const [section, setSection] = useState('');
   const [review, setReview] = useState(false);
+  const [draftReview, setDraftReview] = useState<DraftReview | null>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -196,6 +216,120 @@ export function Instructor() {
     };
   }, [isPreview, authenticated, sessionId]);
 
+  // A drawn-but-unstarted rapid fire survives a reload: reopen its review.
+  const hasDraft = Boolean(connected?.draft) && !started;
+  useEffect(() => {
+    if (isPreview || !sessionId || !hasDraft || draftReview) return;
+    let active = true;
+    instructorRpc<unknown>('draft_review', { p_session: sessionId })
+      .then((data) => {
+        if (!active) return;
+        const restored = parseDraftReview(data);
+        setQuestionCount(String(restored.config.question_count));
+        setSeconds(String(restored.config.seconds_per_question));
+        setTempters(restored.config.tempters);
+        setDraftReview(restored);
+        setReview(true);
+      })
+      .catch((err) => {
+        if (active)
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Could not load the questions.',
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [isPreview, sessionId, hasDraft, draftReview]);
+
+  async function ensureSession() {
+    if (sessionId) return sessionId;
+    const opened = await instructorRpc<{ session_id: string }>('open_session', {
+      p_section: section,
+      // Safety cap: the session auto-closes an hour after opening (review time
+      // is added back on start). The instructor normally ends it early.
+      p_closes_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    });
+    setSessionId(opened.session_id);
+    try {
+      sessionStorage.setItem('lost-schema-host-session', opened.session_id);
+    } catch {
+      // Private mode: the session still works for this tab.
+    }
+    return opened.session_id;
+  }
+
+  // Draw the questions (keeping earlier edits when the count is unchanged) and
+  // show them for review before anything goes live.
+  async function prepareReview() {
+    if (!valid || busy || started) return;
+    if (isPreview) {
+      setReview(true);
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const id = await ensureSession();
+      const data = await instructorRpc<unknown>('prepare_rapid_fire', {
+        p_session: id,
+        p_count: count,
+        p_seconds: allotted,
+        p_tempters: tempters,
+      });
+      setDraftReview(parseDraftReview(data));
+      setReview(true);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not draw the questions.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeDraft(name: string, args: Record<string, unknown>) {
+    if (busy || !sessionId) return false;
+    setBusy(true);
+    setError('');
+    try {
+      const data = await instructorRpc<unknown>(name, {
+        p_session: sessionId,
+        ...args,
+      });
+      setDraftReview(parseDraftReview(data));
+      return true;
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Could not update the question.',
+      );
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  const swapQuestion = (round: number, question: number) =>
+    void changeDraft('swap_draft_question', {
+      p_round: round,
+      p_question: question,
+    });
+  const resetQuestion = (round: number, question: number) =>
+    void changeDraft('reset_draft_question', {
+      p_round: round,
+      p_question: question,
+    });
+  const editQuestion = (round: number, question: number, edit: QuestionEdit) =>
+    changeDraft('edit_draft_question', {
+      p_round: round,
+      p_question: question,
+      p_stem: edit.stem,
+      p_options: edit.options,
+      p_correct: edit.correct,
+      p_explanation: edit.explanation,
+    });
+
   async function signIn() {
     const { error: authError } = await supabase!.auth.signInWithOAuth({
       provider: 'google',
@@ -225,21 +359,7 @@ export function Instructor() {
         setNow(Date.now());
         setPreview(next);
       } else {
-        let id = sessionId;
-        if (!id) {
-          const opened = await instructorRpc<{ session_id: string }>(
-            'open_session',
-            {
-              p_section: section,
-              // Safety cap: the session auto-closes an hour after opening. The
-              // instructor normally ends it early once the class is done.
-              p_closes_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-            },
-          );
-          id = opened.session_id;
-          setSessionId(id);
-          sessionStorage.setItem('lost-schema-host-session', id);
-        }
+        const id = await ensureSession();
         await instructorRpc('start_rapid_fire', {
           p_session: id,
           p_count: count,
@@ -251,6 +371,7 @@ export function Instructor() {
         });
         setConnected(state);
         setServerOffset(Date.parse(state.server_now) - performance.now());
+        setDraftReview(null);
       }
       setReview(false);
     } catch (err) {
@@ -303,6 +424,7 @@ export function Instructor() {
   function viewSession(id: string) {
     if (id === sessionId) return;
     setReview(false);
+    setDraftReview(null);
     setConfirmEnd(false);
     setError('');
     setSessionId(id);
@@ -316,6 +438,7 @@ export function Instructor() {
   // Leave the current session and return to the setup screen for a new one.
   function newSession() {
     setReview(false);
+    setDraftReview(null);
     setConfirmEnd(false);
     setError('');
     setSection('');
@@ -359,9 +482,7 @@ export function Instructor() {
       )}
       {error && (
         <p className="form-error" role="alert">
-          {error === 'host_only'
-            ? 'This account is not an authorized instructor for this session.'
-            : error}
+          {errorMessages[error] ?? error}
         </p>
       )}
       {!isPreview && !authenticated ? (
@@ -600,6 +721,12 @@ export function Instructor() {
                       them at their own pace; you end the rapid fire when the
                       class is done.
                     </p>
+                    {draftReview && (
+                      <p>
+                        Check the questions below first. Starting locks them and
+                        shows the join link to share.
+                      </p>
+                    )}
                     <div className="approval-actions">
                       <button
                         className="start-timer"
@@ -621,9 +748,14 @@ export function Instructor() {
                   <button
                     className="start-timer review-button"
                     disabled={!valid || busy}
-                    onClick={() => setReview(true)}
+                    onClick={() => void prepareReview()}
                   >
-                    Review rapid fire <span aria-hidden="true">→</span>
+                    {busy
+                      ? 'Drawing questions…'
+                      : isPreview
+                        ? 'Review rapid fire'
+                        : 'Review questions'}{' '}
+                    <span aria-hidden="true">→</span>
                   </button>
                 )}
               </>
@@ -662,6 +794,15 @@ export function Instructor() {
               Wrong answers carry no negative points.
             </div>
           </aside>
+          {!started && review && draftReview && (
+            <QuestionReview
+              review={draftReview}
+              busy={busy}
+              onSwap={swapQuestion}
+              onEdit={editQuestion}
+              onReset={resetQuestion}
+            />
+          )}
           {started &&
             ended &&
             (isPreview ? (
