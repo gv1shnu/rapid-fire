@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { instructorRpc, supabase } from './instructor-api';
+import { appPath, appUrl } from './paths';
 
 // One sign-in for everyone. The server decides the role: accounts in the
 // instructor allowlist get the control room; everyone else is a signed-in
@@ -49,7 +50,7 @@ export function Home() {
       provider: 'google',
       options: {
         scopes: 'openid email profile',
-        redirectTo: window.location.origin,
+        redirectTo: appUrl(),
       },
     });
     if (authError) {
@@ -120,7 +121,7 @@ export function Home() {
           </button>
         )}
         {phase === 'instructor' && (
-          <a className="start-timer" href="/instructor">
+          <a className="start-timer" href={appPath('instructor')}>
             Open the control room →
           </a>
         )}
@@ -130,7 +131,10 @@ export function Home() {
             Sign out
           </button>
         )}
-        <a className="subtle-link preview-link" href="/?preview=question">
+        <a
+          className="subtle-link preview-link"
+          href={appPath('?preview=question')}
+        >
           Try the first question →
         </a>
       </section>
@@ -148,8 +152,8 @@ export function Home() {
       </aside>
       <footer>
         <span>
-          <a href="/privacy.html">Privacy policy</a> ·{' '}
-          <a href="/terms.html">Terms of service</a>
+          <a href={appPath('privacy.html')}>Privacy policy</a> ·{' '}
+          <a href={appPath('terms.html')}>Terms of service</a>
         </span>
         <a className="credit" href="https://vishnugandarapu.in">
           Built by Vishnu Gandarapu

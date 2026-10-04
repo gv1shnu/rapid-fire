@@ -4,17 +4,19 @@
 
 Record the actual public HTTPS origin, a monitored support/privacy email, the Supabase project URL/public key, approved instructor emails, and the private production question-bank owner. These values are deployment-specific. Do not submit OAuth branding or publish legal contact placeholders.
 
-The application accepts only `example.edu` and `students.example.edu`. Migration 008 removes other entries from `allowed_domains`; take this into account when upgrading an existing installation.
+The live deployment is https://www.vishnugandarapu.in/rapid-fire/ (Supabase project `sxxpexqgnhzzgwpntpnp`, declared under `[remotes.production]` in `supabase/config.toml`).
+
+Migration 019 opens sign-in to any verified Google account and empties `allowed_domains`, which is no longer consulted. To restore a domain lock, add a forward migration that brings back the domain checks in `assert_domain()` and `before_user_created()`.
 
 ## Supabase
 
 1. Use a dedicated production project, separate from development.
 2. Back up existing data. End all live sittings before applying migrations. Review `supabase db push --dry-run` against the intended linked project, then apply migrations in filename order. Do not use database reset or seed replacement on production.
-3. Enable Google as the identity provider and enable the `public.before_user_created` auth hook. Every RPC independently rechecks verified email, Google provider and exact domain membership.
-4. Add actual approved college emails to `instructor_emails`. No roster is required. A matching section does not grant membership in a session.
+3. Enable Google as the identity provider and enable the `public.before_user_created` auth hook. Every RPC independently rechecks a verified email from the Google provider. With the project linked, `supabase config push` applies the production auth settings; export `SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` first.
+4. Add approved instructor emails to `instructor_emails`. No roster is required. A matching section does not grant membership in a session.
 5. Import private, reviewed assessment questions. The repository's public seed is practice content and must not be used as a secret graded bank. Each question requires four options and exactly one correct answer. Content is frozen at release; later bank edits cannot affect that release.
-6. Set the Auth site URL to your actual origin. Add exact frontend return URLs for `/`, `/?j=*` (only the query variation), and `/instructor` using Supabase's supported redirect patterns. Keep production origins restricted; avoid broad cross-domain wildcards.
-7. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in the frontend build environment. Never expose a service-role key. A custom Supabase API domain also requires updating `public/_headers` connect-src.
+6. Set the Auth site URL to the deployed URL (`https://www.vishnugandarapu.in/rapid-fire/`). Allow return URLs for `/rapid-fire/`, `/rapid-fire/?j=*` and `/rapid-fire/instructor` using Supabase's supported redirect patterns. Keep production origins restricted; avoid broad cross-domain wildcards.
+7. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` as GitHub repository variables. Never expose a service-role key. A custom Supabase API domain also requires updating the CSP `connect-src` in `vite.config.ts` and `public/_headers`.
 
 The local Supabase CLI configuration is for development. Hosted provider credentials, hook enablement, redirect allowlists and regional settings must be configured in the actual project.
 
@@ -30,7 +32,9 @@ Primary references: [Google OAuth policies](https://developers.google.com/identi
 
 ## Static hosting and quality gates
 
-Build with Node 22.12+ and publish `dist/`. Cloudflare Pages consumes the supplied `_headers` and `_redirects`; equivalent headers and SPA rewrites must be configured on another host. Real privacy/terms/icon files must remain publicly accessible. Cloudflare may canonicalize `.html` pages to extensionless URLs; use the final reachable URLs on the consent screen.
+The **Deploy web** workflow builds with Node 22 and publishes `dist/` to GitHub Pages after **Verify** succeeds on `main`, or on manual dispatch. Pages must use "GitHub Actions" as its source. The user site's custom domain places the project at `/rapid-fire/`, so production builds use that Vite `base`.
+
+GitHub Pages cannot set response headers. The build injects the Content-Security-Policy and referrer policy as meta tags; `frame-ancestors`, `X-Frame-Options` and `nosniff` cannot be set this way and are absent on Pages. The build copies `index.html` to `404.html` so deep links such as `/rapid-fire/instructor` load the app (with a 404 status). `_headers` and `_redirects` are kept for Cloudflare Pages, which honours them; there the base path must change back to `/`.
 
 Require GitHub's `verify` check on the protected main branch, including administrators where available. Preserve any stricter existing protection. Disable direct deployment of revisions whose required checks have not passed. The local pre-push hook is only an additional check.
 

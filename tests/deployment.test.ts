@@ -22,7 +22,7 @@ describe('deployment assets and browser configuration', () => {
   it('ships every manifest icon at the declared dimensions', () => {
     const manifest = JSON.parse(read('public/site.webmanifest'));
     for (const icon of manifest.icons) {
-      const path = new URL(`../public${icon.src}`, import.meta.url);
+      const path = new URL(`../public/${icon.src}`, import.meta.url);
       expect(existsSync(path)).toBe(true);
       if (icon.type === 'image/png') {
         const data = readFileSync(path);
@@ -38,22 +38,33 @@ describe('deployment assets and browser configuration', () => {
     ).toBe(1);
   });
   it.each(['privacy', 'terms'])(
-    'serves public %s with only the approved account domains',
+    'serves public %s with base-relative links and real contact details',
     (name) => {
       const html = read(`public/${name}.html`);
-      expect(html).toContain('example.edu');
-      expect(html).toContain('students.example.edu');
-      expect(html).not.toContain('partner.example');
+      expect(html).not.toContain('example.edu');
+      expect(html).not.toContain('Maintainers:');
       expect(html).not.toContain('shared countdown');
-      expect(html).toContain('href="/"');
+      expect(html).toContain('href="./"');
+      expect(html).not.toMatch(/(href|src)="\/(?!\/)/);
     },
   );
   it('links legal pages from the public homepage and forbids framing', () => {
     const home = read('src/Home.tsx');
-    expect(home).toContain('href="/privacy.html"');
-    expect(home).toContain('href="/terms.html"');
+    expect(home).toContain("href={appPath('privacy.html')}");
+    expect(home).toContain("href={appPath('terms.html')}");
     const headers = read('public/_headers');
     expect(headers).toContain("frame-ancestors 'none'");
     expect(headers).toContain('X-Content-Type-Options: nosniff');
+  });
+  it('ships absolute share metadata and a 1200x630 card for the Pages URL', () => {
+    const html = read('index.html');
+    const origin = 'https://www.vishnugandarapu.in/rapid-fire/';
+    expect(html).toContain(`<link rel="canonical" href="${origin}" />`);
+    expect(html).toContain(`content="${origin}og-image.png"`);
+    expect(html).toContain('name="twitter:card" content="summary_large_image"');
+    const card = readFileSync(
+      new URL('../public/og-image.png', import.meta.url),
+    );
+    expect([card.readUInt32BE(16), card.readUInt32BE(20)]).toEqual([1200, 630]);
   });
 });

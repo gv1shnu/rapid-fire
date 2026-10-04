@@ -1,0 +1,63 @@
+name: Deploy web
+# Publishes the static app to GitHub Pages. The user site's custom domain serves
+# it at https://www.vishnugandarapu.in/rapid-fire/.
+#
+# Runs after the Verify workflow succeeds on main, so a revision whose checks
+# failed is never published, or manually from the Actions tab. Requires
+# Settings -> Pages -> Source: GitHub Actions, plus these repository variables
+# (both are public browser values; never put a secret/service-role key here):
+#   VITE_SUPABASE_URL             - https://<project-ref>.supabase.co
+#   VITE_SUPABASE_PUBLISHABLE_KEY - sb_publishable_...
+#
+# Database migrations ship separately through the Deploy database workflow.
+on:
+  workflow_run:
+    workflows: [Verify]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+jobs:
+  build:
+    name: build
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          test -n "$VITE_SUPABASE_URL" && test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" \
+            || { echo "::error::Set the VITE_SUPABASE_* repository variables"; exit 1; }
+          npm run build
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: dist
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -2,12 +2,13 @@
 import { readFileSync } from 'node:fs';
 const origin = process.env.PUBLIC_APP_URL;
 const support = process.env.SUPPORT_EMAIL;
+const supportUrl = process.env.SUPPORT_URL;
 const errors = [];
 try {
   const url = new URL(origin);
   if (
     url.protocol !== 'https:' ||
-    url.pathname !== '/' ||
+    !url.pathname.endsWith('/') ||
     url.search ||
     url.hash ||
     url.username ||
@@ -16,22 +17,26 @@ try {
   )
     throw new Error();
 } catch {
-  errors.push('PUBLIC_APP_URL must be the real HTTPS production origin.');
+  errors.push(
+    'PUBLIC_APP_URL must be the real HTTPS production URL, ending in a slash.',
+  );
 }
-if (!support || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(support))
-  errors.push('SUPPORT_EMAIL must be the monitored support/privacy address.');
+// Either a monitored mailbox or a public HTTPS contact page (e.g. an issue tracker).
+const contact = support
+  ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(support) && `mailto:${support}`
+  : supportUrl?.startsWith('https://') && supportUrl;
+if (!contact)
+  errors.push(
+    'Set SUPPORT_EMAIL (monitored address) or SUPPORT_URL (https contact page).',
+  );
 for (const name of ['privacy', 'terms']) {
   const html = readFileSync(
     new URL(`../public/${name}.html`, import.meta.url),
     'utf8',
   );
-  if (
-    html.includes('Maintainers:') ||
-    !support ||
-    !html.includes(`mailto:${support}`)
-  )
+  if (html.includes('Maintainers:') || !contact || !html.includes(contact))
     errors.push(
-      `${name}.html must contain the approved support email and no placeholders.`,
+      `${name}.html must link the approved support contact and no placeholders.`,
     );
 }
 if (

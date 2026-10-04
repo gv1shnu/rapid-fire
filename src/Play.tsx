@@ -13,6 +13,7 @@ import {
   type Result,
   type StudentState,
 } from './student-api';
+import { appPath, appUrl } from './paths';
 
 function Content({ body }: { body: Body }) {
   return (
@@ -315,7 +316,7 @@ export function Play({ code }: { code: string }) {
   }, [user, code]);
 
   async function signIn() {
-    const redirect = new URL('/', window.location.origin);
+    const redirect = new URL(appUrl());
     redirect.searchParams.set('j', code);
     try {
       const result = await supabase!.auth.signInWithOAuth({
@@ -343,7 +344,7 @@ export function Play({ code }: { code: string }) {
           <h1>Join the rapid fire</h1>
           <p>
             {checked
-              ? 'Sign in with your college Google account to join.'
+              ? 'Sign in with your Google account to join.'
               : 'Checking sign-in…'}
           </p>
           {view.error && <p role="alert">{view.error}</p>}
@@ -353,8 +354,8 @@ export function Play({ code }: { code: string }) {
             </button>
           )}
           <p>
-            <a href="/privacy.html">Privacy policy</a> ·{' '}
-            <a href="/terms.html">Terms of service</a>
+            <a href={appPath('privacy.html')}>Privacy policy</a> ·{' '}
+            <a href={appPath('terms.html')}>Terms of service</a>
           </p>
         </section>
       </main>
@@ -371,7 +372,7 @@ export function Play({ code }: { code: string }) {
   return (
     <main className="question-preview">
       <header>
-        <a className="brand" href="/">
+        <a className="brand" href={appPath()}>
           THE LOST SCHEMA
         </a>
         <span className="badge">RAPID FIRE</span>
@@ -593,8 +594,8 @@ export function Play({ code }: { code: string }) {
       <footer>
         <span>One attempt per student, per round.</span>
         <span>
-          <a href="/privacy.html">Privacy policy</a> ·{' '}
-          <a href="/terms.html">Terms of service</a>
+          <a href={appPath('privacy.html')}>Privacy policy</a> ·{' '}
+          <a href={appPath('terms.html')}>Terms of service</a>
         </span>
         <a className="credit" href="https://vishnugandarapu.in">
           Built by Vishnu Gandarapu
