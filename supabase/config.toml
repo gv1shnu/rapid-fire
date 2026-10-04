@@ -30,6 +30,23 @@ enable_signup = false
 [auth.hook.before_user_created]
 enabled = true
 uri = "pg-functions://postgres/public/before_user_created"
-# Enable/configure Google credentials in M2, after provisioning allowed_domains.
 [storage]
 enabled = true
+
+# Hosted production project, served at https://www.vishnugandarapu.in/rapid-fire/.
+# `supabase config push` applies these overrides; the Google secret is read from
+# the environment and never committed.
+[remotes.production]
+project_id = "sxxpexqgnhzzgwpntpnp"
+[remotes.production.auth]
+site_url = "https://www.vishnugandarapu.in/rapid-fire/"
+additional_redirect_urls = [
+  "https://www.vishnugandarapu.in/rapid-fire/**",
+  "http://127.0.0.1:5173/**",
+  "http://localhost:5173/**",
+]
+[remotes.production.auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { appPath } from './paths';
 
 // Public demonstration content only. No key, scoring, or database connection.
 const options = [
@@ -107,7 +108,7 @@ export function QuestionPreview() {
   return (
     <main className="question-preview">
       <header>
-        <a className="brand" href="/">
+        <a className="brand" href={appPath()}>
           THE LOST SCHEMA
         </a>
         <span className="badge">PRACTICE PREVIEW · NOT SCORED</span>
