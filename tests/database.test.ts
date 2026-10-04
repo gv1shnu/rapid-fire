@@ -273,7 +273,7 @@ describe('production PostgreSQL protocol', () => {
       (
         await admin('select domain from public.allowed_domains order by domain')
       ).rows.map((r) => r.domain),
-    ).toEqual(['example.edu', 'students.example.edu']);
+    ).toEqual([]);
   });
   it('draws exactly the configured question count and serves one at a time', async () => {
     noKey(await round('start_round'));
@@ -565,19 +565,15 @@ describe('production PostgreSQL protocol', () => {
     await rpc('join_session', [other.code, 'Explorer', 'seed']);
     expect((await round('start_round')).seq).toBe(1);
   });
-  it.each(['partner.example', 'evilexample.edu', 'example.edu.attacker.test'])(
-    'rejects unapproved domain %s on all student entry points',
+  it.each(['gmail.com', 'partner.example', 'example.edu.attacker.test'])(
+    'admits any verified Google account at %s',
     async (domain) => {
       await admin('update auth.users set email=$1 where id=$2', [
         `student@${domain}`,
         player,
       ]);
       await identity(player);
-      for (const fn of ['start_round', 'submit_round', 'my_result'])
-        await expect(round(fn)).rejects.toThrow('domain_not_allowed');
-      await expect(rpc('student_state', [session], ['uuid'])).rejects.toThrow(
-        'domain_not_allowed',
-      );
+      noKey(await round('start_round'));
       await admin(
         "update auth.users set email='student@example.edu' where id=$1",
         [player],
@@ -627,18 +623,6 @@ describe('production PostgreSQL protocol', () => {
       player,
     ]);
   });
-  it('allows the exact nested university domain', async () => {
-    await admin(
-      "update auth.users set email='student@students.example.edu' where id=$1",
-      [player],
-    );
-    await identity(player);
-    noKey(await round('start_round'));
-    await admin(
-      "update auth.users set email='student@example.edu' where id=$1",
-      [player],
-    );
-  });
   it('denies direct tables, private functions and anonymous RPCs', async () => {
     const { rows } = await admin(
       "select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind in ('r','v') and (has_table_privilege('anon',c.oid,'SELECT') or has_table_privilege('authenticated',c.oid,'SELECT'))",
@@ -654,7 +638,7 @@ describe('production PostgreSQL protocol', () => {
       'permission denied',
     );
   });
-  it('checks the signup hook for exact domains and Google', async () => {
+  it('checks the signup hook for a Google provider', async () => {
     await identity(player, 'supabase_auth_admin');
     const event = (domain: string, provider = 'google') => ({
       user: { email: `a@${domain}`, app_metadata: { provider } },
@@ -667,9 +651,8 @@ describe('production PostgreSQL protocol', () => {
       ),
     ).toEqual({});
     expect(
-      (await rpc('before_user_created', [event('partner.example')], ['jsonb']))
-        .error.http_code,
-    ).toBe(403);
+      await rpc('before_user_created', [event('gmail.com')], ['jsonb']),
+    ).toEqual({});
     expect(
       (
         await rpc(

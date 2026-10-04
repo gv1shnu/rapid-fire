@@ -8,6 +8,7 @@ import {
   type InstructorSession,
   type InstructorState,
 } from './instructor-api';
+import { appPath, appUrl } from './paths';
 
 const storageKey = 'lost-schema-instructor-preview';
 type PreviewSession = {
@@ -200,7 +201,7 @@ export function Instructor() {
       provider: 'google',
       options: {
         scopes: 'openid email profile',
-        redirectTo: `${window.location.origin}/instructor`,
+        redirectTo: appUrl('instructor'),
       },
     });
     if (authError) setError(authError.message);
@@ -332,7 +333,7 @@ export function Instructor() {
   return (
     <main className="instructor-page">
       <header>
-        <a className="brand" href="/">
+        <a className="brand" href={appPath()}>
           THE LOST SCHEMA
         </a>
         <span className="badge">INSTRUCTOR</span>
@@ -346,7 +347,7 @@ export function Instructor() {
             to back, at each student’s own pace.
           </p>
         </div>
-        <a className="subtle-link" href="/?preview=question">
+        <a className="subtle-link" href={appPath('?preview=question')}>
           View a sample question
         </a>
       </div>
@@ -366,9 +367,7 @@ export function Instructor() {
       {!isPreview && !authenticated ? (
         <section className="setup-panel">
           <h2>Instructor access</h2>
-          <p>
-            Sign in with your college Google account to manage a rapid fire.
-          </p>
+          <p>Sign in with your Google account to manage a rapid fire.</p>
           <button className="start-timer" onClick={() => void signIn()}>
             Sign in with Google
           </button>
@@ -445,9 +444,7 @@ export function Instructor() {
                     <span className="field-label">
                       Share this link with students
                     </span>
-                    <code className="join-link">
-                      {window.location.origin}/?j={code}
-                    </code>
+                    <code className="join-link">{appUrl(`?j=${code}`)}</code>
                     <p className="clock-caption">
                       They sign in and join. Code: {code}
                     </p>

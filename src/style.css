@@ -11,6 +11,13 @@
 body {
   margin: 0;
 }
+a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+a:not([class]):hover {
+  color: #eeeadd;
+}
 main {
   max-width: 1300px;
   min-height: 100svh;
