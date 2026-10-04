@@ -4,6 +4,16 @@ The instructor configures the sitting **once** — a section, 1 question per rou
 
 Each **student self-paces** straight through all nine rounds — `9 × questions` in total — with no breaks and no instructor handoff. When a student finishes one round, the next is served immediately. One attempt per `(session, student, round)`; a submitted round cannot restart.
 
+## Reviewing questions before going live
+
+**Review questions** draws the sitting into draft releases (`prepare_rapid_fire`) without starting anything or showing the join link. The control room lists every drawn question per round with its correct answer and explanation. For each question the host can:
+
+- **Swap** it for a random unused question from the same lecture (`swap_draft_question`). This is disabled when the whole pool is already drawn.
+- **Edit** the stem, option text, correct option and explanation (`edit_draft_question`). Edits change only this session's frozen snapshot, never the shared bank, and are validated server-side: one correct option, and non-empty text within length limits.
+- **Undo edits** to restore the bank version (`reset_draft_question`).
+
+Going back to the settings keeps the draft. Re-reviewing with the same count keeps every swap and edit, while a different count redraws. **Approve & start** promotes the reviewed draft unchanged; scoring, Jerry hints and debriefs all read those snapshots. Time spent reviewing is added back to the session cutoff, within the three-hour cap. A reload mid-review reopens the draft.
+
 ## Two clocks
 
 1. **Question deadline:** `served_at + seconds_per_question`, immutable, no acceptance grace. Answers at or after it are timeouts. A successful answer serves the next question at once; an unanswered one times out at its original deadline and the following question's clock starts only when it is first served — so refresh, retries, device-clock changes and duplicate tabs never reset the attempt.

@@ -261,7 +261,7 @@ describe('production PostgreSQL protocol', () => {
     );
     expect(stored.rows[0].n).toBe(3);
   });
-  it('ships nine populated rounds and only the two approved domains', async () => {
+  it('ships nine populated rounds and no domain allowlist', async () => {
     expect(
       (
         await admin(
@@ -629,7 +629,7 @@ describe('production PostgreSQL protocol', () => {
     );
     expect(rows).toEqual([]);
     const helpers = await admin(
-      "select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname in ('assert_domain','assert_live','assert_member','safe_body','safe_table','snapshot_question','serve_pending','score_run','expire_run','finish_release') and has_function_privilege('authenticated',p.oid,'EXECUTE')",
+      "select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname in ('assert_domain','assert_live','assert_member','safe_body','safe_table','snapshot_question','serve_pending','score_run','expire_run','finish_release','assert_draft_host') and has_function_privilege('authenticated',p.oid,'EXECUTE')",
     );
     expect(helpers.rows).toEqual([]);
     await identity(player, 'anon');
@@ -988,5 +988,291 @@ describe('instructor session report', () => {
       "select has_function_privilege('anon','public.session_report(uuid)','execute') allowed",
     );
     expect(permissions.rows[0].allowed).toBe(false);
+  });
+});
+
+type Review = {
+  config: { question_count: number; seconds_per_question: number };
+  rounds: {
+    id: number;
+    available: number;
+    questions: {
+      question_id: number;
+      stem: string;
+      explanation: string;
+      edited: boolean;
+      options: { id: number; body: { text: string }; is_correct: boolean }[];
+    }[];
+  }[];
+};
+describe('question review before going live', () => {
+  let draft: string;
+  let code: string;
+  const prepare = (count: number, seconds = 12) =>
+    rpc<Review>(
+      'prepare_rapid_fire',
+      [draft, count, seconds],
+      ['uuid', 'smallint', 'smallint'],
+    );
+  const start = (count: number, seconds = 12) =>
+    rpc(
+      'start_rapid_fire',
+      [draft, count, seconds],
+      ['uuid', 'smallint', 'smallint'],
+    );
+  const edit = (
+    roundId: number,
+    q: Review['rounds'][0]['questions'][0],
+    patch: {
+      stem?: string;
+      texts?: string[];
+      correct?: number;
+      explanation?: string;
+    },
+  ) =>
+    rpc<Review>(
+      'edit_draft_question',
+      [
+        draft,
+        roundId,
+        q.question_id,
+        patch.stem ?? q.stem,
+        JSON.stringify(
+          q.options.map((o, i) => ({
+            id: o.id,
+            text: patch.texts?.[i] ?? o.body.text,
+          })),
+        ),
+        patch.correct ?? q.options.find((o) => o.is_correct)!.id,
+        patch.explanation ?? q.explanation,
+      ],
+      ['uuid', 'smallint', 'bigint', 'text', 'jsonb', 'bigint', 'text'],
+    );
+  beforeEach(async () => {
+    await identity(host);
+    const opened = await rpc(
+      'open_session',
+      ['A', new Date(Date.now() + 60 * 60000).toISOString()],
+      ['text', 'timestamptz'],
+    );
+    draft = opened.session_id;
+    code = opened.code;
+  });
+
+  it('draws a reviewable draft with answers for the host, not a started session', async () => {
+    const review = await prepare(3);
+    expect(review.rounds).toHaveLength(9);
+    for (const r of review.rounds) {
+      expect(r.questions).toHaveLength(3);
+      for (const q of r.questions)
+        expect(q.options.filter((o) => o.is_correct)).toHaveLength(1);
+    }
+    const state = await rpc<{
+      config: unknown;
+      draft: { question_count: number };
+    }>('instructor_state', [draft], ['uuid']);
+    expect(state.config).toBeNull();
+    expect(state.draft.question_count).toBe(3);
+    await identity(player);
+    await expect(rpc('draft_review', [draft], ['uuid'])).rejects.toThrow(
+      'host_only',
+    );
+    await expect(
+      rpc(
+        'edit_draft_question',
+        [draft, 1, 1, 'x', '[]', 1, 'x'],
+        ['uuid', 'smallint', 'bigint', 'text', 'jsonb', 'bigint', 'text'],
+      ),
+    ).rejects.toThrow('host_only');
+  });
+
+  it('serves and grades the edited question without touching the shared bank', async () => {
+    const review = await prepare(1);
+    const q = review.rounds[0].questions[0];
+    const wrong = q.options.find((o) => !o.is_correct)!;
+    const edited = await edit(1, q, {
+      stem: 'Edited stem?',
+      texts: ['Alpha', 'Beta', 'Gamma', 'Delta'],
+      correct: wrong.id,
+      explanation: 'Edited explanation.',
+    });
+    const after = edited.rounds[0].questions[0];
+    expect(after.edited).toBe(true);
+    expect(after.stem).toBe('Edited stem?');
+    expect(after.options.map((o) => o.body.text)).toEqual([
+      'Alpha',
+      'Beta',
+      'Gamma',
+      'Delta',
+    ]);
+    expect(after.options.find((o) => o.is_correct)!.id).toBe(wrong.id);
+    const bank = await admin('select stem from public.questions where id=$1', [
+      q.question_id,
+    ]);
+    expect(bank.rows[0].stem).toBe(q.stem);
+    const correct = await admin(
+      'select is_correct from public.options where id=$1',
+      [wrong.id],
+    );
+    expect(correct.rows[0].is_correct).toBe(false);
+
+    await start(1);
+    await identity(player);
+    await rpc('join_session', [code, 'Explorer', 'seed']);
+    const served = await rpc('start_round', [draft, 1], ['uuid', 'smallint']);
+    noKey(served);
+    expect((served as unknown as { stem: string }).stem).toBe('Edited stem?');
+    // Choosing the newly-correct option scores; the bank's old key would not.
+    const chosen = await admin(
+      `select a.option_tokens[array_position(a.option_order,$1::bigint)] token from public.attempts a
+       where a.session_id=$2 and a.round_id=1`,
+      [wrong.id, draft],
+    );
+    await identity(player);
+    await rpc(
+      'submit_answer',
+      [draft, 1, 1, chosen.rows[0].token],
+      ['uuid', 'smallint', 'smallint', 'uuid'],
+    );
+    const run = await admin(
+      'select correct_count from public.round_runs where session_id=$1 and round_id=1',
+      [draft],
+    );
+    expect(run.rows[0].correct_count).toBe(1);
+  });
+
+  it('keeps edits across a settings change but redraws when the count changes', async () => {
+    const q = (await prepare(2)).rounds[0].questions[0];
+    await edit(1, q, { stem: 'Kept?' });
+    const sameCount = await prepare(2, 30);
+    expect(sameCount.config.seconds_per_question).toBe(30);
+    expect(sameCount.rounds[0].questions.map((x) => x.stem)).toContain('Kept?');
+    const redrawn = await prepare(3);
+    expect(redrawn.rounds[0].questions).toHaveLength(3);
+    expect(redrawn.rounds[0].questions.map((x) => x.stem)).not.toContain(
+      'Kept?',
+    );
+  });
+
+  it('swaps within the same lecture pool, refuses when it is exhausted, and resets edits', async () => {
+    const review = await prepare(2);
+    const r = review.rounds[0];
+    const before = r.questions.map((x) => x.question_id);
+    const swapped = await rpc<Review>(
+      'swap_draft_question',
+      [draft, r.id, before[0]],
+      ['uuid', 'smallint', 'bigint'],
+    );
+    const now = swapped.rounds[0].questions.map((x) => x.question_id);
+    expect(now).toHaveLength(2);
+    expect(now).not.toContain(before[0]);
+    expect(now).toContain(before[1]);
+    const bankRound = await admin(
+      'select round_id from public.questions where id=any($1)',
+      [now],
+    );
+    expect(bankRound.rows.every((x) => x.round_id === r.id)).toBe(true);
+
+    const smallest = review.rounds.reduce((a, b) =>
+      b.available < a.available ? b : a,
+    );
+    const full = await prepare(smallest.available);
+    const pool = full.rounds.find((x) => x.id === smallest.id)!;
+    await expect(
+      rpc(
+        'swap_draft_question',
+        [draft, pool.id, pool.questions[0].question_id],
+        ['uuid', 'smallint', 'bigint'],
+      ),
+    ).rejects.toThrow('no_replacement');
+
+    const q = full.rounds[0].questions[0];
+    await edit(full.rounds[0].id, q, { stem: 'Temporary' });
+    const reset = await rpc<Review>(
+      'reset_draft_question',
+      [draft, full.rounds[0].id, q.question_id],
+      ['uuid', 'smallint', 'bigint'],
+    );
+    const restored = reset.rounds[0].questions.find(
+      (x) => x.question_id === q.question_id,
+    )!;
+    expect(restored.stem).toBe(q.stem);
+    expect(restored.edited).toBe(false);
+  });
+
+  it.each([
+    ['invalid_stem', { stem: '   ' }],
+    ['invalid_explanation', { explanation: '' }],
+    ['invalid_option_text', { texts: ['', 'b', 'c', 'd'] }],
+    ['invalid_correct_option', { correct: 999999 }],
+  ])('rejects an edit with %s', async (message, patch) => {
+    const q = (await prepare(1)).rounds[0].questions[0];
+    await expect(edit(1, q, patch)).rejects.toThrow(message);
+  });
+
+  it('rejects options that do not match the question exactly', async () => {
+    const q = (await prepare(1)).rounds[0].questions[0];
+    await expect(
+      rpc(
+        'edit_draft_question',
+        [
+          draft,
+          1,
+          q.question_id,
+          'Stem',
+          JSON.stringify(
+            q.options.slice(0, 3).map((o) => ({ id: o.id, text: 'x' })),
+          ),
+          q.options[0].id,
+          'Why',
+        ],
+        ['uuid', 'smallint', 'bigint', 'text', 'jsonb', 'bigint', 'text'],
+      ),
+    ).rejects.toThrow('invalid_options');
+  });
+
+  it('gives back review time on start and locks the draft once live', async () => {
+    await prepare(2);
+    const opened = await admin(
+      'select closes_at from public.sessions where id=$1',
+      [draft],
+    );
+    await admin(
+      "update public.round_releases set prepared_at=prepared_at-interval '20 minutes' where session_id=$1",
+      [draft],
+    );
+    await identity(host);
+    await start(2);
+    const live = await admin(
+      'select closes_at,status from public.sessions where id=$1',
+      [draft],
+    );
+    expect(live.rows[0].status).toBe('live');
+    const added =
+      (new Date(live.rows[0].closes_at as string).getTime() -
+        new Date(opened.rows[0].closes_at as string).getTime()) /
+      60000;
+    expect(added).toBeGreaterThanOrEqual(19.9);
+    const state = await rpc<{
+      config: { question_count: number };
+      draft: unknown;
+    }>('instructor_state', [draft], ['uuid']);
+    expect(state.config.question_count).toBe(2);
+    expect(state.draft).toBeNull();
+    await expect(rpc('draft_review', [draft], ['uuid'])).rejects.toThrow(
+      'already_started',
+    );
+    await expect(prepare(2)).rejects.toThrow('already_started');
+  });
+
+  it('starting with a different count than the draft redraws instead of keeping it', async () => {
+    const q = (await prepare(2)).rounds[0].questions[0];
+    await edit(1, q, { stem: 'Discarded?' });
+    await start(3);
+    const rows = await admin(
+      "select count(*)::int n, bool_or(snapshot->>'stem'='Discarded?') kept from public.release_questions where session_id=$1 and round_id=1",
+      [draft],
+    );
+    expect(rows.rows[0]).toEqual({ n: 3, kept: false });
   });
 });
