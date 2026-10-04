@@ -111,32 +111,34 @@ export function Home() {
             {error}
           </p>
         )}
-        {phase === 'signedOut' && (
-          <button
-            className="start-timer"
-            disabled={busy}
-            onClick={() => void signIn()}
-          >
-            {busy ? 'Opening Google…' : 'Sign in with Google'}
-          </button>
-        )}
-        {phase === 'instructor' && (
-          <a className="start-timer" href={appPath('instructor')}>
-            Open the control room →
-          </a>
-        )}
         {phase === 'loading' && <p role="status">Checking your session…</p>}
-        {(phase === 'student' || phase === 'instructor') && (
-          <button className="plain-button" onClick={() => void signOut()}>
-            Sign out
-          </button>
-        )}
-        <a
-          className="subtle-link preview-link"
-          href={appPath('?preview=question')}
-        >
-          Try the first question →
-        </a>
+        <div className="home-actions">
+          {phase === 'signedOut' && (
+            <button
+              className="start-timer"
+              disabled={busy}
+              onClick={() => void signIn()}
+            >
+              {busy ? 'Opening Google…' : 'Sign in with Google'}
+            </button>
+          )}
+          {phase === 'instructor' && (
+            <a className="start-timer" href={appPath('instructor')}>
+              Open the control room →
+            </a>
+          )}
+          {(phase === 'student' || phase === 'instructor') && (
+            <button className="plain-button" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          )}
+          <a
+            className="subtle-link preview-link"
+            href={appPath('?preview=question')}
+          >
+            Try the first question →
+          </a>
+        </div>
       </section>
       <aside aria-label="Expedition route">
         <span>01</span>

@@ -41,6 +41,8 @@ export type InstructorState = {
     closes_at: string;
   } | null;
   config: Config | null;
+  /** Settings of a drawn-but-unstarted rapid fire awaiting question review. */
+  draft?: Omit<Config, 'duration_seconds'> | null;
   students_joined: number;
   students_done: number;
   server_now: string;
@@ -56,6 +58,30 @@ export type InstructorSession = {
   seconds_per_question: number | null;
   students_joined: number;
   students_done: number;
+};
+
+export type ReviewBody = {
+  text?: string;
+  code_html?: string;
+  table_json?: { cols: string[]; rows: (string | number | boolean | null)[][] };
+};
+export type ReviewQuestion = {
+  question_id: number;
+  stem: string;
+  display_type: string;
+  body: ReviewBody | null;
+  explanation: string;
+  edited: boolean;
+  options: { id: number; body: ReviewBody; is_correct: boolean }[];
+};
+export type DraftReview = {
+  config: Omit<Config, 'duration_seconds'>;
+  rounds: {
+    id: number;
+    title: string;
+    available: number;
+    questions: ReviewQuestion[];
+  }[];
 };
 
 // A token minted at sign-in carries an `iat` from the auth server, but the
@@ -296,4 +322,42 @@ export function parseRoundReport(x: unknown): RoundReport {
   )
     throw new Error('Invalid round report. Please reconnect.');
   return x as RoundReport;
+}
+export function parseDraftReview(x: unknown): DraftReview {
+  const question = (q: unknown) =>
+    record(q) &&
+    positive(q.question_id) &&
+    typeof q.stem === 'string' &&
+    typeof q.explanation === 'string' &&
+    typeof q.edited === 'boolean' &&
+    (q.body === null || record(q.body)) &&
+    Array.isArray(q.options) &&
+    q.options.length === 4 &&
+    q.options.every(
+      (o) =>
+        record(o) &&
+        positive(o.id) &&
+        record(o.body) &&
+        typeof o.is_correct === 'boolean',
+    ) &&
+    q.options.filter((o) => o.is_correct).length === 1;
+  if (
+    !record(x) ||
+    !record(x.config) ||
+    !positive(x.config.question_count) ||
+    !positive(x.config.seconds_per_question) ||
+    typeof x.config.tempters !== 'boolean' ||
+    !Array.isArray(x.rounds) ||
+    !x.rounds.every(
+      (r) =>
+        record(r) &&
+        positive(r.id) &&
+        typeof r.title === 'string' &&
+        integer(r.available) &&
+        Array.isArray(r.questions) &&
+        r.questions.every(question),
+    )
+  )
+    throw new Error('Invalid question review. Please reconnect.');
+  return x as DraftReview;
 }
