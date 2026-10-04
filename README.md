@@ -1,10 +1,12 @@
 # The Lost Schema
 
-A timed SQL assessment for the university DBMS lab. Instructors approve a question count and seconds per question, release a shared question set, and review each student's results after closure. Students join with a college Google account and get one resumable attempt per round.
+A timed SQL assessment for the university DBMS lab. Instructors approve a question count and seconds per question, release a shared question set, and review each student's results after closure. Students join with a Google account and get one resumable attempt per round.
+
+**Live:** [www.vishnugandarapu.in/rapid-fire](https://www.vishnugandarapu.in/rapid-fire/) · [practice question](https://www.vishnugandarapu.in/rapid-fire/?preview=question)
 
 ![The Lost Schema — a timed question in progress](docs/screenshot.png)
 
-Only `example.edu` and `students.example.edu` are accepted. Google Spaces distribution is planned; the instructor currently copies the join URL manually.
+Any verified Google account can sign in (migration 019); instructor access comes only from the email allowlist. Google Spaces distribution is planned; the instructor currently copies the join URL manually.
 
 ## Objective and current behavior
 
@@ -27,7 +29,7 @@ Only `example.edu` and `students.example.edu` are accepted. Google Spaces distri
 | Authorization | RLS, revoked table access, explicit session membership, instructor email allowlist     |
 | Tests         | Vitest, React Testing Library, real migrations in PGlite, PostgreSQL concurrency suite |
 | Quality       | ESLint, Prettier, TypeScript, GitHub Actions, local pre-push verification              |
-| Hosting       | Static hosting; Cloudflare Pages headers and SPA fallback included                     |
+| Hosting       | GitHub Pages under `/rapid-fire/`, deployed after `verify` passes; CSP as meta tags    |
 
 ## Setup
 
@@ -44,14 +46,14 @@ Without Supabase environment values, `/instructor` is an explicit setup preview 
 For connected play:
 
 1. Create a Supabase project and apply **all migrations in order**. Migration 008 is a protocol change; apply it between sittings and deploy the matching frontend together.
-2. The migration provisions the two allowed domains. Enable Google Auth and the `before_user_created` hook. Configure exact production redirect URLs as described in [deployment](docs/DEPLOYMENT.md).
-3. Insert approved instructor emails into `public.instructor_emails`. They must belong to one of the allowed domains. Students require no roster provisioning.
+2. Enable Google Auth and the `before_user_created` hook, which admits any verified Google account. Configure exact production redirect URLs as described in [deployment](docs/DEPLOYMENT.md).
+3. Insert approved instructor emails into `public.instructor_emails`. Students require no roster provisioning.
 4. Import your private production question bank. `supabase/seed.sql` is a public, 174-question practice fixture, **not a secret assessment bank**. Never import it into a graded production sitting. Never run a destructive seed reset against existing results.
 5. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in `.env.local` and your hosting build environment. Only a publishable or legacy anon key belongs in the browser; never a service-role key.
 
 ```sql
 insert into public.instructor_emails (email)
-values ('approved-instructor@example.edu');
+values ('approved-instructor@example.com');
 ```
 
 The example is a placeholder; use the actual approved instructor account.
@@ -72,7 +74,7 @@ See [release behavior](docs/INSTRUCTOR_RELEASES.md) and [metric definitions](doc
 
 ```text
 React browser
-  ├─ Google OAuth → Supabase Auth → exact domain / verified provider checks
+  ├─ Google OAuth → Supabase Auth → verified Google provider checks
   └─ Supabase RPC
        ├─ instructor: open_session, configure_round, go_live, end_round,
        │              end_session, instructor_state, session_report, round_report
@@ -110,16 +112,16 @@ GitHub Actions checks the pushed revision. Configure branch protection to requir
 
 ## Production release
 
-Favicons, the web manifest, public privacy/terms pages, SPA fallback and security headers are included. Complete the approved contact address and actual public origin before publishing. Do not confuse allowed **email domains** with Google's authorized **web domains**.
+Favicons, a 1200×630 share card, the web manifest, sitemap, public privacy/terms pages, a not-found page, SPA fallback and a CSP are included. Production builds use the `/rapid-fire/` base path; dev stays at the root.
 
 ```sh
-PUBLIC_APP_URL=https://your-real-origin \
-SUPPORT_EMAIL=your-monitored-address \
+PUBLIC_APP_URL=https://www.vishnugandarapu.in/rapid-fire/ \
+SUPPORT_URL=https://github.com/gv1shnu/rapid-fire/issues \
 PRODUCTION_QUESTION_BANK_CONFIRMED=yes \
 npm run release:check
 ```
 
-Also set the two public Supabase variables. This explicit check fails if legal contact placeholders remain or the deployment settings are missing. [Deployment instructions](docs/DEPLOYMENT.md) cover OAuth, migrations, headers, staging acceptance and operational limits.
+Use `SUPPORT_EMAIL` instead of `SUPPORT_URL` for a monitored mailbox. Also set the two public Supabase variables. This explicit check fails if legal contact placeholders remain or the deployment settings are missing; it stays red on the public practice bank by design. [Deployment instructions](docs/DEPLOYMENT.md) cover OAuth, migrations, headers, staging acceptance and operational limits.
 
 ## Future additions
 

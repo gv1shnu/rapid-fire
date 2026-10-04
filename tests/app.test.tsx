@@ -46,6 +46,17 @@ describe('App routing', () => {
     expect(screen.getByText(/setup preview/i)).toBeInTheDocument();
   });
 
+  it('shows a not-found page with a way home for unknown paths', () => {
+    go('/no-such-page');
+    render(<App />);
+    expect(
+      screen.getByRole('heading', { name: /this path leads nowhere/i }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('link', { name: /back to the expedition/i }),
+    ).toHaveAttribute('href', '/');
+  });
+
   it('renders the single-question practice preview when preview=question', () => {
     go('/?preview=question');
     render(<App />);
